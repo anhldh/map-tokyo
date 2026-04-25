@@ -1,0 +1,54 @@
+/* =========================================
+   MODERN CSS RESET
+   ========================================= */
+
+/* 1. Kế thừa box-sizing chuẩn cho toàn bộ element để dễ tính toán kích thước */
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+/* 2. Reset margin và padding mặc định */
+* {
+  margin: 0;
+  padding: 0;
+}
+
+/* 3. Chiều cao cơ bản cho trang */
+html, body {
+  height: 100%;
+}
+
+/* 4. Tối ưu hiển thị font chữ và line-height */
+body {
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* 5. Đảm bảo hình ảnh và các media element không bao giờ tràn khung */
+img, picture, video, canvas, svg {
+  display: block;
+  max-width: 100%;
+}
+
+/* 6. Form control không tự động nhận font mặc định của hệ điều hành mà kế thừa từ body */
+input, button, textarea, select {
+  font: inherit;
+}
+
+/* 7. Xóa viền outline khó chịu khi click vào button/input (tùy chọn, bạn có thể tự style trạng thái :focus) */
+button {
+  border: none;
+  background: none;
+  cursor: pointer;
+}
+
+/* 8. Tránh lỗi tràn ngang trang do nội dung text quá dài, không có dấu cách */
+p, h1, h2, h3, h4, h5, h6 {
+  overflow-wrap: break-word;
+}
+
+/* 9. Tạo một stacking context mới cho root app (rất hữu ích cho React / Next.js) để tránh lỗi z-index */
+#root, #__next {
+  isolation: isolate;
+}
