@@ -10,6 +10,7 @@ import { LivecamPlugin, type LivecamData } from "@/layers/livecam";
 import { useLayersStore } from "@/stores/layersStore";
 import { useClockStore } from "@/stores/clockStore";
 import { LivecamModal } from "@/components/ui/LivecamModal";
+import { PrecipitationPlugin } from "@/layers/precipitation";
 
 mapboxgl.accessToken = import.meta.env.VITE_MAPBOX_TOKEN;
 
@@ -26,6 +27,7 @@ export default function Map({ onMapLoad }: MapProps) {
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const plateauRef = useRef<PlateauPlugin | null>(null);
   const livecamRef = useRef<LivecamPlugin | null>(null);
+  const precipitationRef = useRef<PrecipitationPlugin | null>(null);
   const styleLoadedRef = useRef(false);
 
   // ============== State ==============
@@ -36,6 +38,9 @@ export default function Map({ onMapLoad }: MapProps) {
   const plateauEnabled = useLayersStore((s) => s.enabled.has("plateau"));
   const livecamEnabled = useLayersStore((s) => s.enabled.has("live-cameras"));
   const lightPreset = useClockStore((s) => s.lightPreset);
+  const precipitationEnabled = useLayersStore((s) =>
+    s.enabled.has("precipitation"),
+  );
 
   // ============== Helpers ==============
   const moveRailwaysToTop = useCallback(() => {
@@ -46,6 +51,9 @@ export default function Map({ onMapLoad }: MapProps) {
         const id = `railways-${suffix}-${zoom}`;
         if (map.getLayer(id)) map.moveLayer(id);
       }
+    }
+    if (map.getLayer("precipitation")) {
+      map.moveLayer("precipitation");
     }
   }, []);
 
@@ -69,6 +77,10 @@ export default function Map({ onMapLoad }: MapProps) {
       lang: "en",
       onCameraOpen: (camera) => setActiveCamera(camera),
       onCameraClose: () => setActiveCamera(null),
+    });
+
+    precipitationRef.current = new PrecipitationPlugin({
+      theme: lightPreset === "day" ? "light" : "dark",
     });
 
     // Style load: setup config, terrain, railways, rồi mới apply layer states
@@ -112,11 +124,15 @@ export default function Map({ onMapLoad }: MapProps) {
       if (enabledLayers.has("live-cameras")) {
         livecamRef.current?.enable(map);
       }
+      if (enabledLayers.has("precipitation")) {
+        precipitationRef.current?.enable(map);
+      }
     });
 
     return () => {
       plateauRef.current?.disable();
       livecamRef.current?.disable();
+      precipitationRef.current?.disable();
       map.remove();
 
       mapRef.current = null;
@@ -124,7 +140,7 @@ export default function Map({ onMapLoad }: MapProps) {
       livecamRef.current = null;
       styleLoadedRef.current = false;
     };
-  }, [onMapLoad, config, moveRailwaysToTop]);
+  }, [onMapLoad, config, moveRailwaysToTop, lightPreset]);
 
   // ============== Light preset (theo giờ) ==============
   useEffect(() => {
@@ -157,6 +173,23 @@ export default function Map({ onMapLoad }: MapProps) {
     else plugin.disable();
     // setActiveCamera sẽ tự được gọi qua onCameraClose callback
   }, [livecamEnabled]);
+
+  // Precipitation toggle
+  useEffect(() => {
+    const map = mapRef.current;
+    const plugin = precipitationRef.current;
+    if (!map || !plugin || !styleLoadedRef.current) return;
+
+    if (precipitationEnabled) plugin.enable(map);
+    else plugin.disable();
+  }, [precipitationEnabled]);
+
+  // Effect cho theme khi lightPreset đổi:
+  useEffect(() => {
+    precipitationRef.current?.setTheme(
+      lightPreset === "day" ? "light" : "dark",
+    );
+  }, [lightPreset]);
 
   // ============== Modal handlers ==============
   const handleModalClose = useCallback(() => {

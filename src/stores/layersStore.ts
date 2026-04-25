@@ -2,7 +2,7 @@ import { create } from "zustand";
 
 export type LayerId =
   | "precipitation"
-  | "fireworks"
+  //   | "fireworks"
   | "live-cameras"
   | "plateau"
   | "gtfs";
@@ -15,8 +15,8 @@ interface LayersState {
 }
 
 const DEFAULT_ENABLED: LayerId[] = [
-  "precipitation",
-  "fireworks",
+  //   "precipitation",
+  //   "fireworks",
   //   "live-cameras",
 ];
 

@@ -3,7 +3,7 @@ import styled from "@emotion/styled";
 import {
   Layers,
   CloudRain,
-  Sparkles,
+  // Sparkles,
   Video,
   Building2,
   Bus,
@@ -22,7 +22,7 @@ interface LayerOption {
 
 const LAYER_OPTIONS: LayerOption[] = [
   { id: "precipitation", label: "Precipitation", icon: CloudRain },
-  { id: "fireworks", label: "Fireworks", icon: Sparkles },
+  // { id: "fireworks", label: "Fireworks", icon: Sparkles },
   { id: "live-cameras", label: "Live Cameras", icon: Video },
   { id: "plateau", label: "PLATEAU", icon: Building2 },
   { id: "gtfs", label: "GTFS", icon: Bus },

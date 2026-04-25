@@ -17,6 +17,10 @@ function getLightPreset(date: Date): LightPreset {
   return "night";
 }
 
+export function isLightTheme(preset: LightPreset): boolean {
+  return preset === "day";
+}
+
 export const useClockStore = create<ClockState>((set) => ({
   now: new Date(),
   lightPreset: getLightPreset(new Date()),
