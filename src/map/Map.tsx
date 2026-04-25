@@ -11,6 +11,7 @@ import { useLayersStore } from "@/stores/layersStore";
 import { useClockStore } from "@/stores/clockStore";
 import { LivecamModal } from "@/components/ui/LivecamModal";
 import { PrecipitationPlugin } from "@/layers/precipitation";
+import { addStationLayers, STATION_LAYER_IDS } from "@/layers/stations";
 
 mapboxgl.accessToken = import.meta.env.VITE_MAPBOX_TOKEN;
 
@@ -51,6 +52,9 @@ export default function Map({ onMapLoad }: MapProps) {
         const id = `railways-${suffix}-${zoom}`;
         if (map.getLayer(id)) map.moveLayer(id);
       }
+    }
+    for (const id of STATION_LAYER_IDS) {
+      if (map.getLayer(id)) map.moveLayer(id);
     }
     if (map.getLayer("precipitation")) {
       map.moveLayer("precipitation");
@@ -108,10 +112,11 @@ export default function Map({ onMapLoad }: MapProps) {
 
       // Railways
       try {
-        const { features } = await loadRailwayData();
-        addRailwayLayers({ map, features, slot: "middle" });
+        const { railways, stations, features } = await loadRailwayData();
+        addRailwayLayers({ map, features, slot: "top" });
+        addStationLayers({ map, stations, railways, slot: "top" });
       } catch (err) {
-        console.error("Failed to load railway data:", err);
+        console.error("Failed to load map data:", err);
       }
 
       styleLoadedRef.current = true;

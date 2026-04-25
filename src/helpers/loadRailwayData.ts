@@ -3,34 +3,48 @@ import type { FeatureCollection } from "geojson";
 
 // ---- Types ----
 
-/**
- * Một entry trong railways.json — metadata của tuyến đường sắt.
- * Shape theo Mini Tokyo 3D.
- */
 export interface Railway {
-  id: string; // "JR-East.Yamanote"
-  title: Record<string, string>; // { ja, en, fr, ko, "zh-Hans", "zh-Hant" }
-  stations: string[]; // station ids theo thứ tự
-  ascending?: string; // "OuterLoop" | "Outbound" | ...
-  descending?: string; // "InnerLoop" | "Inbound" | ...
-  color: string; // "#80C342"
-  carComposition?: number; // số toa
-  [key: string]: unknown; // cho các field khác không biết trước
+  id: string;
+  title: Record<string, string>;
+  stations: string[];
+  ascending?: string;
+  descending?: string;
+  color: string;
+  carComposition?: number;
+  [key: string]: unknown;
+}
+
+export interface Station {
+  id: string;
+  railway: string;
+  coord: [number, number];
+  title: Record<string, string>;
+  thumbnail?: string;
+  [key: string]: unknown;
 }
 
 export interface RailwayData {
   railways: Railway[];
+  stations: Station[];
   features: FeatureCollection;
 }
 
 // ---- Loader ----
 
 export async function loadRailwayData(baseUrl = "/data"): Promise<RailwayData> {
-  const [railways, features] = await Promise.all([
+  const [railways, stations, features] = await Promise.all([
     fetchJson<Railway[]>(`${baseUrl}/railways.json`),
+    fetchJson<Station[]>(`${baseUrl}/stations.json`),
     fetchJson<FeatureCollection>(`${baseUrl}/features.json`),
   ]);
-  return { railways, features };
+
+  console.log("loaded:", {
+    railways: railways?.length,
+    stations: stations?.length, // nếu undefined → file path sai
+    features: features?.features?.length,
+  });
+
+  return { railways, stations, features };
 }
 
 async function fetchJson<T>(url: string): Promise<T> {
