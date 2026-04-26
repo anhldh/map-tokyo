@@ -12,6 +12,20 @@ import { useClockStore } from "@/stores/clockStore";
 import { LivecamModal } from "@/components/ui/LivecamModal";
 import { PrecipitationPlugin } from "@/layers/precipitation";
 import { addStationLayers, STATION_LAYER_IDS } from "@/layers/stations";
+import {
+  getCalendarType,
+  getNowSecondsTokyo,
+  TrainScheduler,
+  type TrainTimetable,
+} from "@/layers/trainscheduler";
+import {
+  buildRailwayPathMap,
+  distanceToStation,
+  samplePath,
+} from "@/layers/railwaypath";
+import { TrainLayer } from "@/layers/trainLayer";
+import { StreetViewPanel } from "@/components/ui/StreetViewPanel";
+import { useStreetViewStore } from "@/stores/streetViewStore";
 
 mapboxgl.accessToken = import.meta.env.VITE_MAPBOX_TOKEN;
 
@@ -22,7 +36,7 @@ interface MapProps {
   onMapLoad?: (map: mapboxgl.Map) => void;
 }
 
-export default function Map({ onMapLoad }: MapProps) {
+export default function MapView({ onMapLoad }: MapProps) {
   // ============== Refs ==============
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
@@ -30,10 +44,13 @@ export default function Map({ onMapLoad }: MapProps) {
   const livecamRef = useRef<LivecamPlugin | null>(null);
   const precipitationRef = useRef<PrecipitationPlugin | null>(null);
   const styleLoadedRef = useRef(false);
+  const trainLayerRef = useRef<TrainLayer | null>(null);
 
   // ============== State ==============
   const [config] = useState<MapConfig>(INITIAL_CONFIG);
   const [activeCamera, setActiveCamera] = useState<LivecamData | null>(null);
+  // Expose mapbox instance để StreetViewPanel dùng được
+  const [mapInstance, setMapInstance] = useState<mapboxgl.Map | null>(null);
 
   // ============== Store subscriptions ==============
   const plateauEnabled = useLayersStore((s) => s.enabled.has("plateau"));
@@ -42,6 +59,10 @@ export default function Map({ onMapLoad }: MapProps) {
   const precipitationEnabled = useLayersStore((s) =>
     s.enabled.has("precipitation"),
   );
+
+  // Street View store
+  const svMode = useStreetViewStore((s) => s.mode);
+  const setSvPosition = useStreetViewStore((s) => s.setPosition);
 
   // ============== Helpers ==============
   const moveRailwaysToTop = useCallback(() => {
@@ -73,7 +94,7 @@ export default function Map({ onMapLoad }: MapProps) {
     });
     mapRef.current = map;
 
-    // Khởi tạo plugins (chưa enable)
+    // Khởi tạo plugins
     plateauRef.current = new PlateauPlugin();
     plateauRef.current.setOnLayerAdded(moveRailwaysToTop);
 
@@ -87,9 +108,7 @@ export default function Map({ onMapLoad }: MapProps) {
       theme: lightPreset === "day" ? "light" : "dark",
     });
 
-    // Style load: setup config, terrain, railways, rồi mới apply layer states
     map.on("style.load", async () => {
-      // Light preset & basemap config
       map.setConfigProperty(
         "basemap",
         "lightPreset",
@@ -99,7 +118,6 @@ export default function Map({ onMapLoad }: MapProps) {
         ([key, value]) => map.setConfigProperty("basemap", key, value),
       );
 
-      // Terrain
       map.addSource("mapbox-dem", {
         type: "raster-dem",
         url: "mapbox://mapbox.mapbox-terrain-dem-v1",
@@ -110,28 +128,30 @@ export default function Map({ onMapLoad }: MapProps) {
 
       onMapLoad?.(map);
 
-      // Railways
       try {
-        const { railways, stations, features } = await loadRailwayData();
+        const { railways, stations, features, stationGroups } =
+          await loadRailwayData();
         addRailwayLayers({ map, features, slot: "top" });
-        addStationLayers({ map, stations, railways, slot: "top" });
+        addStationLayers({
+          map,
+          stations,
+          railways,
+          stationGroups,
+          slot: "top",
+        });
       } catch (err) {
         console.error("Failed to load map data:", err);
       }
 
       styleLoadedRef.current = true;
+      // Expose map instance ra cho các component khác (StreetViewPanel)
+      setMapInstance(map);
 
-      // Apply layer states đã có sẵn trong store (user toggle từ trước khi map load)
       const enabledLayers = useLayersStore.getState().enabled;
-      if (enabledLayers.has("plateau")) {
-        plateauRef.current?.enable(map);
-      }
-      if (enabledLayers.has("live-cameras")) {
-        livecamRef.current?.enable(map);
-      }
-      if (enabledLayers.has("precipitation")) {
+      if (enabledLayers.has("plateau")) plateauRef.current?.enable(map);
+      if (enabledLayers.has("live-cameras")) livecamRef.current?.enable(map);
+      if (enabledLayers.has("precipitation"))
         precipitationRef.current?.enable(map);
-      }
     });
 
     return () => {
@@ -144,6 +164,7 @@ export default function Map({ onMapLoad }: MapProps) {
       plateauRef.current = null;
       livecamRef.current = null;
       styleLoadedRef.current = false;
+      setMapInstance(null);
     };
   }, [onMapLoad, config, moveRailwaysToTop, lightPreset]);
 
@@ -176,10 +197,9 @@ export default function Map({ onMapLoad }: MapProps) {
 
     if (livecamEnabled) plugin.enable(map);
     else plugin.disable();
-    // setActiveCamera sẽ tự được gọi qua onCameraClose callback
   }, [livecamEnabled]);
 
-  // Precipitation toggle
+  // ============== Precipitation toggle ==============
   useEffect(() => {
     const map = mapRef.current;
     const plugin = precipitationRef.current;
@@ -189,12 +209,35 @@ export default function Map({ onMapLoad }: MapProps) {
     else plugin.disable();
   }, [precipitationEnabled]);
 
-  // Effect cho theme khi lightPreset đổi:
+  // ============== Precipitation theme ==============
   useEffect(() => {
     precipitationRef.current?.setTheme(
       lightPreset === "day" ? "light" : "dark",
     );
   }, [lightPreset]);
+
+  // ============== Street View: picking mode ==============
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !styleLoadedRef.current) return;
+
+    if (svMode !== "picking") {
+      map.getCanvas().style.cursor = "";
+      return;
+    }
+
+    map.getCanvas().style.cursor = "crosshair";
+
+    const handler = (e: mapboxgl.MapMouseEvent) => {
+      setSvPosition({ lng: e.lngLat.lng, lat: e.lngLat.lat });
+    };
+    map.once("click", handler);
+
+    return () => {
+      map.getCanvas().style.cursor = "";
+      map.off("click", handler);
+    };
+  }, [svMode, setSvPosition]);
 
   // ============== Modal handlers ==============
   const handleModalClose = useCallback(() => {
@@ -204,6 +247,30 @@ export default function Map({ onMapLoad }: MapProps) {
   return (
     <div style={{ position: "relative", width: "100%", height: "100%" }}>
       <div ref={containerRef} style={{ position: "absolute", inset: 0 }} />
+
+      {/* Hint khi đang chọn vị trí xem phố */}
+      {svMode === "picking" && (
+        <div
+          style={{
+            position: "absolute",
+            top: 16,
+            left: "50%",
+            transform: "translateX(-50%)",
+            background: "rgba(0,0,0,0.75)",
+            color: "white",
+            padding: "8px 16px",
+            borderRadius: 8,
+            zIndex: 10,
+            pointerEvents: "none",
+            fontSize: 14,
+          }}
+        >
+          Click vào bản đồ để chọn vị trí xem phố
+        </div>
+      )}
+
+      <StreetViewPanel mapboxMap={mapInstance} />
+
       <LivecamModal
         camera={activeCamera}
         lang="en"
@@ -212,3 +279,54 @@ export default function Map({ onMapLoad }: MapProps) {
     </div>
   );
 }
+
+// ============== Train layer ==============
+// const pathMap = buildRailwayPathMap(features);
+// const stationMap = new Map(stations.map((s) => [s.id, s]));
+// const railwayColors = new Map(railways.map((r) => [r.id, r.color]));
+
+// const manifest = await fetch(
+//   "/data/train-timetables/_manifest.json",
+// ).then((r) => r.json());
+// const all = await Promise.all(
+//   manifest.map((f) =>
+//     fetch(`/data/train-timetables/${f}`).then((r) => r.json()),
+//   ),
+// );
+// const flat = all.flat();
+// console.log("Total timetables:", flat.length);
+
+// // Đếm theo suffix
+// const suffixCounts = {};
+// for (const t of flat) {
+//   const m = t.id.match(/\.([^.]+)$/);
+//   const suffix = m ? m[1] : "(none)";
+//   suffixCounts[suffix] = (suffixCounts[suffix] ?? 0) + 1;
+// }
+// console.table(suffixCounts);
+
+// const allTimetables = await Promise.all(
+//   manifest.map((f) =>
+//     fetch(`/data/train-timetables/${f}`).then(
+//       (r) => r.json() as Promise<TrainTimetable[]>,
+//     ),
+//   ),
+// );
+// const calendar = getCalendarType();
+// const filtered = allTimetables
+//   .flat()
+//   .filter((t) => t.id.endsWith(`.${calendar}`));
+
+// const scheduler = new TrainScheduler(pathMap);
+// scheduler.addTimetables(filtered, stationMap);
+// console.log(`🚆 Loaded ${scheduler.size} timetables for ${calendar}`);
+
+// const trainLayer = new TrainLayer({
+//   scheduler,
+//   railwayColors,
+//   maxInstances: 1000,
+//   carSize: [20, 30, 100], // to gấp ~5 lần — dễ thấy
+//   altitudeOffset: 50, // lift 50m cho dễ thấy
+// });
+// trainLayerRef.current = trainLayer;
+// map.addLayer(trainLayer);

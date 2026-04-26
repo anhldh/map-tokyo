@@ -24,6 +24,7 @@ import { useKeyboardNavigation } from "@/hooks/useKeyboardNavigation";
 import { useMapInteractionStore } from "@/stores/mapInteractionStore";
 import FullScreenExpand from "../common/FullScreenExpand";
 import ClockUI from "../common/Clock";
+import { useStreetViewStore } from "@/stores/streetViewStore";
 
 interface MapOverlayProps {
   map: mapboxgl.Map | null;
@@ -109,6 +110,9 @@ const MapOverlay = ({ map }: MapOverlayProps) => {
   );
 
   useKeyboardNavigation(map);
+  const mode = useStreetViewStore((s) => s.mode);
+  const startPicking = useStreetViewStore((s) => s.startPicking);
+  const close = useStreetViewStore((s) => s.close);
 
   useEffect(() => {
     if (!map) return;
@@ -172,9 +176,14 @@ const MapOverlay = ({ map }: MapOverlayProps) => {
               <IconButton title="Chọn">
                 <MousePointer size={18} />
               </IconButton>
-              <IconButton title="Góc nhìn">
+              <IconButton
+                title="Góc nhìn"
+                onClick={() => (mode === "off" ? startPicking() : close())}
+                active={mode !== "off"}
+              >
                 <PersonStanding size={18} />
               </IconButton>
+              ;
               <FullScreenExpand />
             </Flex>
           </Flex>

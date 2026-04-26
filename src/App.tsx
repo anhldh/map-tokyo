@@ -1,10 +1,10 @@
 // App.tsx
 import { ConfigProvider, theme } from "antd";
-import Map from "./map/Map";
 import MapOverlay from "./components/ui/MapOverlay";
 import { useState } from "react";
 import { ACCENT_COLOR } from "./styles/constants";
 import { startClockTicker } from "./stores/clockStore";
+import MapView from "./map/Map";
 
 const App = () => {
   const [map, setMap] = useState<mapboxgl.Map | null>(null);
@@ -28,7 +28,7 @@ const App = () => {
           overflow: "hidden",
         }}
       >
-        <Map onMapLoad={setMap} />
+        <MapView onMapLoad={setMap} />
         <MapOverlay map={map} />
       </div>
     </ConfigProvider>
