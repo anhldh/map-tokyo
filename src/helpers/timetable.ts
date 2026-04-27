@@ -1,5 +1,6 @@
 import type { Dayjs } from "dayjs";
 import { isJapaneseHoliday } from "./japaneseHolidays";
+import { R2_BASE } from "@/utils/constants";
 
 export interface RawTimetableEntry {
   s: string;
@@ -87,7 +88,7 @@ const TIMETABLE_FILES: Record<CalendarType, string> = {
 
 export async function loadTimetable(
   calendar: CalendarType,
-  baseUrl = "/data",
+  baseUrl = R2_BASE,
 ): Promise<TrainTimetable[]> {
   const file = TIMETABLE_FILES[calendar];
   const res = await fetch(`${baseUrl}/${file}`);
@@ -101,7 +102,7 @@ export async function loadTimetable(
 }
 
 export async function loadWeekdayTimetable(
-  baseUrl = "/data",
+  baseUrl = R2_BASE,
 ): Promise<TrainTimetable[]> {
   const res = await fetch(`${baseUrl}/timetable-weekday.json`);
   if (!res.ok) {
@@ -124,7 +125,7 @@ export function getCalendarType(date: Dayjs): CalendarType {
 }
 
 export async function loadAllTimetables(
-  baseUrl = "/data",
+  baseUrl = R2_BASE,
 ): Promise<Record<CalendarType, TrainTimetable[]>> {
   const calendars: CalendarType[] = [
     "weekday",

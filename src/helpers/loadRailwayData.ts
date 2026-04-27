@@ -1,3 +1,4 @@
+import { R2_BASE } from "@/utils/constants";
 import type { FeatureCollection } from "geojson";
 
 // ---- Types ----
@@ -33,7 +34,7 @@ export interface RailwayData {
 
 // ---- Loader ----
 
-export async function loadRailwayData(baseUrl = "/data"): Promise<RailwayData> {
+export async function loadRailwayData(baseUrl = R2_BASE): Promise<RailwayData> {
   const [railways, stations, features, stationGroups] = await Promise.all([
     fetchJson<Railway[]>(`${baseUrl}/railways.json`),
     fetchJson<Station[]>(`${baseUrl}/stations.json`),
