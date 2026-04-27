@@ -10,6 +10,7 @@ interface IconButtonProps {
   onClick?: () => void;
   active?: boolean;
   placement?: "top" | "bottom" | "left" | "right";
+  style?: React.CSSProperties;
 }
 
 const StyledButton = styled.button<{ active?: boolean }>`
@@ -49,9 +50,10 @@ const IconButton = ({
   onClick,
   active,
   placement = "bottom",
+  style,
 }: IconButtonProps) => {
   const button = (
-    <StyledButton onClick={onClick} active={active}>
+    <StyledButton onClick={onClick} active={active} style={style}>
       {children}
     </StyledButton>
   );

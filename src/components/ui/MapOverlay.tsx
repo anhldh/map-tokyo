@@ -6,7 +6,6 @@ import {
   Minus,
   Plus,
   Search,
-  SunMoon,
   Hand,
   MousePointer,
   PersonStanding,
@@ -26,6 +25,7 @@ import FullScreenExpand from "../common/FullScreenExpand";
 import ClockUI from "../common/Clock";
 import { useStreetViewStore } from "@/stores/streetViewStore";
 import FloodPopover from "../common/FloodPopover";
+import TimePopover from "../common/TimePopover";
 
 interface MapOverlayProps {
   map: mapboxgl.Map | null;
@@ -163,9 +163,7 @@ const MapOverlay = ({ map }: MapOverlayProps) => {
                 marginRight: 20,
               }}
             >
-              <IconButton title="Ngày giờ">
-                <SunMoon size={18} />
-              </IconButton>
+              <TimePopover />
               <FloodPopover />
               <LayersPopover />
               <SettingsPopover />

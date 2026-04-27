@@ -12,23 +12,15 @@ import { useClockStore } from "@/stores/clockStore";
 import { LivecamModal } from "@/components/ui/LivecamModal";
 import { PrecipitationPlugin } from "@/layers/precipitation";
 import { addStationLayers, STATION_LAYER_IDS } from "@/layers/stations";
-import {
-  getCalendarType,
-  getNowSecondsTokyo,
-  TrainScheduler,
-  type TrainTimetable,
-} from "@/layers/trainscheduler";
-import {
-  buildRailwayPathMap,
-  distanceToStation,
-  samplePath,
-} from "@/layers/railwaypath";
-import { TrainLayer } from "@/layers/trainLayer";
 import { StreetViewPanel } from "@/components/ui/StreetViewPanel";
 import { useStreetViewStore } from "@/stores/streetViewStore";
 import { FloodSimulationPlugin } from "@/layers/flood/FlootLayer";
 import { useFloodStore } from "@/stores/floodStore";
 import { computeEffectiveLevel } from "@/helpers/floodModel";
+import type { TrainsLayerHandle } from "@/layers/trainThreeLayer";
+import { startTrainAnimation } from "@/animation/trainAnimation";
+import { loadAllTimetables, loadWeekdayTimetable } from "@/helpers/timetable";
+import TrainOverlay from "@/components/ui/TrainOverlay";
 
 mapboxgl.accessToken = import.meta.env.VITE_MAPBOX_TOKEN;
 
@@ -48,12 +40,20 @@ export default function MapView({ onMapLoad }: MapProps) {
   const precipitationRef = useRef<PrecipitationPlugin | null>(null);
   const floodRef = useRef<FloodSimulationPlugin | null>(null);
   const styleLoadedRef = useRef(false);
-  const trainLayerRef = useRef<TrainLayer | null>(null);
+  const trainsRef = useRef<TrainsLayerHandle | null>(null);
 
   // ============== State ==============
   const [config] = useState<MapConfig>(INITIAL_CONFIG);
   const [activeCamera, setActiveCamera] = useState<LivecamData | null>(null);
   const [mapInstance, setMapInstance] = useState<mapboxgl.Map | null>(null);
+
+  const [trainsHandle, setTrainsHandle] = useState<TrainsLayerHandle | null>(
+    null,
+  );
+  const [stationTitles, setStationTitles] = useState<Map<
+    string,
+    string
+  > | null>(null);
 
   // ============== Store subscriptions ==============
   const plateauEnabled = useLayersStore((s) => s.enabled.has("plateau"));
@@ -106,8 +106,10 @@ export default function MapView({ onMapLoad }: MapProps) {
       onCameraClose: () => setActiveCamera(null),
     });
 
+    // Đọc lightPreset từ store tại thời điểm init, không từ closure
+    const initialLightPreset = useClockStore.getState().lightPreset;
     precipitationRef.current = new PrecipitationPlugin({
-      theme: lightPreset === "day" ? "light" : "dark",
+      theme: initialLightPreset === "day" ? "light" : "dark",
     });
 
     floodRef.current = new FloodSimulationPlugin();
@@ -143,6 +145,22 @@ export default function MapView({ onMapLoad }: MapProps) {
           stationGroups,
           slot: "top",
         });
+        const timetablesByCalendar = await loadAllTimetables();
+
+        trainsRef.current = startTrainAnimation({
+          map,
+          timetablesByCalendar,
+          stations,
+          railways,
+          features,
+        });
+        setTrainsHandle(trainsRef.current);
+
+        const titles = new Map<string, string>();
+        for (const s of stations) {
+          titles.set(s.id, s.title?.en ?? s.title?.ja ?? s.id);
+        }
+        setStationTitles(titles);
       } catch (err) {
         console.error("Failed to load map data:", err);
       }
@@ -150,14 +168,14 @@ export default function MapView({ onMapLoad }: MapProps) {
       styleLoadedRef.current = true;
       setMapInstance(map);
 
-      // Enable flood layer luôn (level=0 thì tự ẩn)
+      // Đọc flood state từ store tại thời điểm load
+      const { level: initLevel, scenario: initScenario } =
+        useFloodStore.getState();
       floodRef.current?.enable(map);
-      // Set ngay level hiện tại từ store
-      // floodRef.current?.setLevel(useFloodStore.getState().level);
-      const active = floodLevel > 0;
-      const effective = computeEffectiveLevel(floodLevel, floodScenario);
-
-      floodRef.current?.setLevel(effective, active);
+      floodRef.current?.setLevel(
+        computeEffectiveLevel(initLevel, initScenario),
+        initLevel > 0,
+      );
 
       const enabledLayers = useLayersStore.getState().enabled;
       if (enabledLayers.has("plateau")) plateauRef.current?.enable(map);
@@ -167,6 +185,11 @@ export default function MapView({ onMapLoad }: MapProps) {
     });
 
     return () => {
+      // Quan trọng: remove trains TRƯỚC khi map.remove()
+      trainsRef.current?.remove();
+      trainsRef.current = null;
+      setTrainsHandle(null);
+
       plateauRef.current?.disable();
       livecamRef.current?.disable();
       precipitationRef.current?.disable();
@@ -181,7 +204,7 @@ export default function MapView({ onMapLoad }: MapProps) {
       styleLoadedRef.current = false;
       setMapInstance(null);
     };
-  }, [onMapLoad, config, moveRailwaysToTop, lightPreset]);
+  }, [onMapLoad, config, moveRailwaysToTop]); // ← chỉ giữ 3 cái stable
 
   // ============== Light preset ==============
   useEffect(() => {
@@ -193,6 +216,19 @@ export default function MapView({ onMapLoad }: MapProps) {
       // Chỉ Mapbox Standard style mới support
     }
   }, [lightPreset]);
+
+  useEffect(() => {
+    precipitationRef.current?.setTheme(
+      lightPreset === "day" ? "light" : "dark",
+    );
+  }, [lightPreset]);
+
+  useEffect(() => {
+    if (!styleLoadedRef.current) return;
+    const effective = computeEffectiveLevel(floodLevel, floodScenario);
+    const active = floodLevel > 0;
+    floodRef.current?.setLevel(effective, active);
+  }, [floodLevel, floodScenario]);
 
   // ============== PLATEAU toggle ==============
   useEffect(() => {
@@ -310,6 +346,11 @@ export default function MapView({ onMapLoad }: MapProps) {
         camera={activeCamera}
         lang="en"
         onClose={handleModalClose}
+      />
+      <TrainOverlay
+        map={mapInstance}
+        trainsHandle={trainsHandle}
+        stationTitles={stationTitles ?? undefined}
       />
     </div>
   );
