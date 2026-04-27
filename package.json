@@ -31,6 +31,8 @@
     "@vis.gl/react-google-maps": "^1.8.3",
     "antd": "^6.3.6",
     "dayjs": "^1.11.20",
+    "gtfs-realtime-bindings": "^1.1.1",
+    "jszip": "^3.10.1",
     "lucide-react": "^1.9.0",
     "mapbox-gl": "^3.22.0",
     "mapbox-gl-rain-layer": "^0.9.0",

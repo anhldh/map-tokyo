@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
+// import type { FeatureCollection, LineString } from "geojson";
 
 import { INITIAL_CONFIG, INITIAL_VIEW, type MapConfig } from "./mapConfig";
 import { addRailwayLayers } from "@/layers/railways";
@@ -19,8 +20,19 @@ import { useFloodStore } from "@/stores/floodStore";
 import { computeEffectiveLevel } from "@/helpers/floodModel";
 import type { TrainsLayerHandle } from "@/layers/trainsThreeLayer";
 import { startTrainAnimation } from "@/animation/trainAnimation";
-import { loadAllTimetables, loadWeekdayTimetable } from "@/helpers/timetable";
+import { loadAllTimetables } from "@/helpers/timetable";
 import TrainOverlay from "@/components/ui/TrainOverlay";
+import {
+  addBusesThreeLayer,
+  type BusesLayerHandle,
+} from "@/layers/busesThreeLayer";
+import { startGtfsPoller } from "@/helpers/gtfsPoller";
+import { loadAllGtfsStatic, type GtfsLoadResult } from "@/helpers/gtfsLoader";
+import {
+  addBusShapesLayer,
+  removeBusShapesLayer,
+} from "@/layers/busShapesLayer";
+import { addBusStopsLayer, removeBusStopsLayer } from "@/layers/busStopsLayer";
 
 mapboxgl.accessToken = import.meta.env.VITE_MAPBOX_TOKEN;
 
@@ -42,6 +54,11 @@ export default function MapView({ onMapLoad }: MapProps) {
   const styleLoadedRef = useRef(false);
   const trainsRef = useRef<TrainsLayerHandle | null>(null);
 
+  const busesRef = useRef<BusesLayerHandle | null>(null);
+  const pollerRef = useRef<{ stop: () => void } | null>(null);
+
+  const gtfsStaticRef = useRef<GtfsLoadResult | null>(null);
+
   // ============== State ==============
   const [config] = useState<MapConfig>(INITIAL_CONFIG);
   const [activeCamera, setActiveCamera] = useState<LivecamData | null>(null);
@@ -62,6 +79,7 @@ export default function MapView({ onMapLoad }: MapProps) {
   const precipitationEnabled = useLayersStore((s) =>
     s.enabled.has("precipitation"),
   );
+  const gtfsEnabled = useLayersStore((s) => s.enabled.has("gtfs"));
   const svMode = useStreetViewStore((s) => s.mode);
   const setSvPosition = useStreetViewStore((s) => s.setPosition);
   const floodLevel = useFloodStore((s) => s.level);
@@ -196,6 +214,13 @@ export default function MapView({ onMapLoad }: MapProps) {
       floodRef.current?.disable();
       map.remove();
 
+      // GTFS state
+      pollerRef.current?.stop();
+      pollerRef.current = null;
+      busesRef.current?.remove();
+      busesRef.current = null;
+      gtfsStaticRef.current = null;
+
       mapRef.current = null;
       plateauRef.current = null;
       livecamRef.current = null;
@@ -311,6 +336,68 @@ export default function MapView({ onMapLoad }: MapProps) {
     };
   }, [svMode, setSvPosition]);
 
+  // ============== GTFS toggle ==============
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !styleLoadedRef.current) return;
+
+    let cancelled = false;
+
+    const enable = async () => {
+      if (!gtfsStaticRef.current) {
+        try {
+          gtfsStaticRef.current = await loadAllGtfsStatic();
+        } catch (err) {
+          console.error("[gtfs] static load failed:", err);
+          return;
+        }
+      }
+      if (cancelled) return;
+
+      addBusShapesLayer({
+        map,
+        shapes: gtfsStaticRef.current.shapes,
+        slot: "middle",
+      });
+
+      addBusStopsLayer({
+        map,
+        stops: gtfsStaticRef.current.stops,
+        slot: "top",
+      });
+
+      busesRef.current = addBusesThreeLayer({
+        map,
+        origin: [139.767, 35.681],
+      });
+
+      pollerRef.current = startGtfsPoller({
+        consumerKey: import.meta.env.VITE_ODPT_CONSUMER_KEY,
+      });
+    };
+
+    const disable = () => {
+      pollerRef.current?.stop();
+      pollerRef.current = null;
+      busesRef.current?.remove();
+      busesRef.current = null;
+      removeBusShapesLayer(map);
+      removeBusStopsLayer(map);
+    };
+
+    if (gtfsEnabled) {
+      enable();
+    } else {
+      disable();
+    }
+
+    return () => {
+      cancelled = true;
+      // Khi unmount hoặc gtfsEnabled flip: cleanup nếu đang on
+      if (gtfsEnabled) disable();
+    };
+  }, [gtfsEnabled, mapInstance]);
+
   // ============== Modal handlers ==============
   const handleModalClose = useCallback(() => {
     livecamRef.current?.closeActive();
@@ -355,54 +442,3 @@ export default function MapView({ onMapLoad }: MapProps) {
     </div>
   );
 }
-
-// ============== Train layer ==============
-// const pathMap = buildRailwayPathMap(features);
-// const stationMap = new Map(stations.map((s) => [s.id, s]));
-// const railwayColors = new Map(railways.map((r) => [r.id, r.color]));
-
-// const manifest = await fetch(
-//   "/data/train-timetables/_manifest.json",
-// ).then((r) => r.json());
-// const all = await Promise.all(
-//   manifest.map((f) =>
-//     fetch(`/data/train-timetables/${f}`).then((r) => r.json()),
-//   ),
-// );
-// const flat = all.flat();
-// console.log("Total timetables:", flat.length);
-
-// // Đếm theo suffix
-// const suffixCounts = {};
-// for (const t of flat) {
-//   const m = t.id.match(/\.([^.]+)$/);
-//   const suffix = m ? m[1] : "(none)";
-//   suffixCounts[suffix] = (suffixCounts[suffix] ?? 0) + 1;
-// }
-// console.table(suffixCounts);
-
-// const allTimetables = await Promise.all(
-//   manifest.map((f) =>
-//     fetch(`/data/train-timetables/${f}`).then(
-//       (r) => r.json() as Promise<TrainTimetable[]>,
-//     ),
-//   ),
-// );
-// const calendar = getCalendarType();
-// const filtered = allTimetables
-//   .flat()
-//   .filter((t) => t.id.endsWith(`.${calendar}`));
-
-// const scheduler = new TrainScheduler(pathMap);
-// scheduler.addTimetables(filtered, stationMap);
-// console.log(`🚆 Loaded ${scheduler.size} timetables for ${calendar}`);
-
-// const trainLayer = new TrainLayer({
-//   scheduler,
-//   railwayColors,
-//   maxInstances: 1000,
-//   carSize: [20, 30, 100], // to gấp ~5 lần — dễ thấy
-//   altitudeOffset: 50, // lift 50m cho dễ thấy
-// });
-// trainLayerRef.current = trainLayer;
-// map.addLayer(trainLayer);

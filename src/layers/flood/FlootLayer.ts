@@ -51,9 +51,10 @@ class FloodLayer implements mapboxgl.CustomLayerInterface {
     const material = new THREE.ShaderMaterial({
       transparent: true,
       depthWrite: false,
+      polygonOffset: true,
       uniforms: {
         u_time: { value: 0 },
-        u_color: { value: new THREE.Color(0x2a5f8f) }, // xanh đục
+        u_color: { value: new THREE.Color(0x1e6fd9) }, // xanh đục
         u_opacity: { value: 0.55 },
       },
       vertexShader: `

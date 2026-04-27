@@ -94,7 +94,10 @@ const TrainOverlay = ({
       map.off("mousedown", onMouseDown);
       map.off("mousemove", onMouseMoveCheck);
       map.off("mouseup", onMouseUp);
-      map.getCanvas().style.cursor = "";
+      const canvas = map.getCanvas?.();
+      if (canvas) {
+        canvas.style.cursor = "";
+      }
     };
   }, [map, trainsHandle]);
 
