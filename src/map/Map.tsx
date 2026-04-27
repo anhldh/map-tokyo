@@ -26,6 +26,9 @@ import {
 import { TrainLayer } from "@/layers/trainLayer";
 import { StreetViewPanel } from "@/components/ui/StreetViewPanel";
 import { useStreetViewStore } from "@/stores/streetViewStore";
+import { FloodSimulationPlugin } from "@/layers/flood/FlootLayer";
+import { useFloodStore } from "@/stores/floodStore";
+import { computeEffectiveLevel } from "@/helpers/floodModel";
 
 mapboxgl.accessToken = import.meta.env.VITE_MAPBOX_TOKEN;
 
@@ -43,13 +46,13 @@ export default function MapView({ onMapLoad }: MapProps) {
   const plateauRef = useRef<PlateauPlugin | null>(null);
   const livecamRef = useRef<LivecamPlugin | null>(null);
   const precipitationRef = useRef<PrecipitationPlugin | null>(null);
+  const floodRef = useRef<FloodSimulationPlugin | null>(null);
   const styleLoadedRef = useRef(false);
   const trainLayerRef = useRef<TrainLayer | null>(null);
 
   // ============== State ==============
   const [config] = useState<MapConfig>(INITIAL_CONFIG);
   const [activeCamera, setActiveCamera] = useState<LivecamData | null>(null);
-  // Expose mapbox instance để StreetViewPanel dùng được
   const [mapInstance, setMapInstance] = useState<mapboxgl.Map | null>(null);
 
   // ============== Store subscriptions ==============
@@ -59,10 +62,10 @@ export default function MapView({ onMapLoad }: MapProps) {
   const precipitationEnabled = useLayersStore((s) =>
     s.enabled.has("precipitation"),
   );
-
-  // Street View store
   const svMode = useStreetViewStore((s) => s.mode);
   const setSvPosition = useStreetViewStore((s) => s.setPosition);
+  const floodLevel = useFloodStore((s) => s.level);
+  const floodScenario = useFloodStore((s) => s.scenario);
 
   // ============== Helpers ==============
   const moveRailwaysToTop = useCallback(() => {
@@ -94,7 +97,6 @@ export default function MapView({ onMapLoad }: MapProps) {
     });
     mapRef.current = map;
 
-    // Khởi tạo plugins
     plateauRef.current = new PlateauPlugin();
     plateauRef.current.setOnLayerAdded(moveRailwaysToTop);
 
@@ -107,6 +109,8 @@ export default function MapView({ onMapLoad }: MapProps) {
     precipitationRef.current = new PrecipitationPlugin({
       theme: lightPreset === "day" ? "light" : "dark",
     });
+
+    floodRef.current = new FloodSimulationPlugin();
 
     map.on("style.load", async () => {
       map.setConfigProperty(
@@ -144,8 +148,16 @@ export default function MapView({ onMapLoad }: MapProps) {
       }
 
       styleLoadedRef.current = true;
-      // Expose map instance ra cho các component khác (StreetViewPanel)
       setMapInstance(map);
+
+      // Enable flood layer luôn (level=0 thì tự ẩn)
+      floodRef.current?.enable(map);
+      // Set ngay level hiện tại từ store
+      // floodRef.current?.setLevel(useFloodStore.getState().level);
+      const active = floodLevel > 0;
+      const effective = computeEffectiveLevel(floodLevel, floodScenario);
+
+      floodRef.current?.setLevel(effective, active);
 
       const enabledLayers = useLayersStore.getState().enabled;
       if (enabledLayers.has("plateau")) plateauRef.current?.enable(map);
@@ -158,17 +170,20 @@ export default function MapView({ onMapLoad }: MapProps) {
       plateauRef.current?.disable();
       livecamRef.current?.disable();
       precipitationRef.current?.disable();
+      floodRef.current?.disable();
       map.remove();
 
       mapRef.current = null;
       plateauRef.current = null;
       livecamRef.current = null;
+      precipitationRef.current = null;
+      floodRef.current = null;
       styleLoadedRef.current = false;
       setMapInstance(null);
     };
   }, [onMapLoad, config, moveRailwaysToTop, lightPreset]);
 
-  // ============== Light preset (theo giờ) ==============
+  // ============== Light preset ==============
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !styleLoadedRef.current) return;
@@ -184,7 +199,6 @@ export default function MapView({ onMapLoad }: MapProps) {
     const map = mapRef.current;
     const plugin = plateauRef.current;
     if (!map || !plugin || !styleLoadedRef.current) return;
-
     if (plateauEnabled) plugin.enable(map);
     else plugin.disable();
   }, [plateauEnabled]);
@@ -194,7 +208,6 @@ export default function MapView({ onMapLoad }: MapProps) {
     const map = mapRef.current;
     const plugin = livecamRef.current;
     if (!map || !plugin || !styleLoadedRef.current) return;
-
     if (livecamEnabled) plugin.enable(map);
     else plugin.disable();
   }, [livecamEnabled]);
@@ -204,7 +217,6 @@ export default function MapView({ onMapLoad }: MapProps) {
     const map = mapRef.current;
     const plugin = precipitationRef.current;
     if (!map || !plugin || !styleLoadedRef.current) return;
-
     if (precipitationEnabled) plugin.enable(map);
     else plugin.disable();
   }, [precipitationEnabled]);
@@ -215,6 +227,30 @@ export default function MapView({ onMapLoad }: MapProps) {
       lightPreset === "day" ? "light" : "dark",
     );
   }, [lightPreset]);
+
+  // ============== Flood: cập nhật mực nước ==============
+  useEffect(() => {
+    if (!styleLoadedRef.current) return;
+    const effective = computeEffectiveLevel(floodLevel, floodScenario);
+    const active = floodLevel > 0;
+    floodRef.current?.setLevel(effective, active);
+  }, [floodLevel, floodScenario]);
+
+  // ============== Flood: cập nhật center theo viewport ==============
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !styleLoadedRef.current) return;
+
+    const updateCenter = () => {
+      const c = map.getCenter();
+      floodRef.current?.setCenter(c.lng, c.lat);
+    };
+    updateCenter(); // set lần đầu
+    map.on("moveend", updateCenter);
+    return () => {
+      map.off("moveend", updateCenter);
+    };
+  }, [mapInstance]);
 
   // ============== Street View: picking mode ==============
   useEffect(() => {
@@ -248,7 +284,6 @@ export default function MapView({ onMapLoad }: MapProps) {
     <div style={{ position: "relative", width: "100%", height: "100%" }}>
       <div ref={containerRef} style={{ position: "absolute", inset: 0 }} />
 
-      {/* Hint khi đang chọn vị trí xem phố */}
       {svMode === "picking" && (
         <div
           style={{
