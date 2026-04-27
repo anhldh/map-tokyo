@@ -47,7 +47,7 @@ interface ClockState {
 
 const initialNow = dayjs().tz(TOKYO_TZ);
 
-export const useClockStore = create<ClockState>((set, get) => ({
+export const useClockStore = create<ClockState>((set) => ({
   now: initialNow,
   lightPreset: getLightPreset(initialNow),
   offsetMs: 0,
