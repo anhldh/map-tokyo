@@ -17,7 +17,7 @@ import { useStreetViewStore } from "@/stores/streetViewStore";
 import { FloodSimulationPlugin } from "@/layers/flood/FlootLayer";
 import { useFloodStore } from "@/stores/floodStore";
 import { computeEffectiveLevel } from "@/helpers/floodModel";
-import type { TrainsLayerHandle } from "@/layers/trainThreeLayer";
+import type { TrainsLayerHandle } from "@/layers/trainsThreeLayer";
 import { startTrainAnimation } from "@/animation/trainAnimation";
 import { loadAllTimetables, loadWeekdayTimetable } from "@/helpers/timetable";
 import TrainOverlay from "@/components/ui/TrainOverlay";

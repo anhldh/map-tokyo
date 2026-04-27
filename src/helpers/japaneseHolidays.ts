@@ -1,5 +1,5 @@
 // src/data/japaneseHolidays.ts
-import dayjs, { type Dayjs } from "dayjs";
+import { type Dayjs } from "dayjs";
 
 /**
  * Danh sách lễ Nhật tĩnh — đủ cho demo.
