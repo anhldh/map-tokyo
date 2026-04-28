@@ -8,6 +8,11 @@ import { getActiveTrains, type ActiveTrain } from "@/animation/trainPositions";
 import { buildRailwayPathIndex } from "@/animation/railwayPath";
 import type { Railway, Station } from "@/helpers/loadRailwayData";
 import type { TrainTimetable, CalendarType } from "@/helpers/timetable";
+import { useClockStore } from "@/stores/clockStore";
+import {
+  makeRealtimeKey,
+  useTrainsRealtimeStore,
+} from "@/stores/trainsRealtimeStore";
 
 const LAYER_ID = "trains-3d";
 const MAX_TRAINS = 8000; // bumped cho GTFS sau này
@@ -171,6 +176,95 @@ export function addTrainsThreeLayer(
       scene.add(mesh);
     },
 
+    // onRender() {
+    //   if (!mesh || !instancePosAttr || !instanceColorAttr) return;
+
+    //   const calendar = getCurrentCalendar();
+    //   const timetables = timetablesByCalendar[calendar];
+    //   if (!timetables) {
+    //     mesh.count = 0;
+    //     return;
+    //   }
+
+    //   // Chỉ dùng realtime delay khi KHÔNG ở simulation mode
+    //   const clock = useClockStore.getState();
+    //   const isSimulating = clock.frozen || clock.offsetMs !== 0;
+    //   const realtimeEntries = isSimulating
+    //     ? null
+    //     : useTrainsRealtimeStore.getState().entries;
+
+    //   const currentSeconds = getCurrentSeconds();
+
+    //   const active = getActiveTrains(
+    //     timetables,
+    //     currentSeconds,
+    //     stationsById,
+    //     pathIndex,
+    //     // Truyền delay lookup vào — nếu null thì getActiveTrains coi delay = 0
+    //     realtimeEntries
+    //       ? (railway, trainNumber) => {
+    //           const key = makeRealtimeKey(railway, trainNumber);
+    //           return realtimeEntries.get(key)?.delay ?? 0;
+    //         }
+    //       : undefined,
+    //   );
+
+    //   lastActive = active;
+
+    //   //  Frustum culling theo viewport
+    //   const bounds = map.getBounds();
+    //   if (!bounds) {
+    //     mesh.count = 0;
+    //     return;
+    //   }
+    //   const minLng = bounds.getWest();
+    //   const maxLng = bounds.getEast();
+    //   const minLat = bounds.getSouth();
+    //   const maxLat = bounds.getNorth();
+    //   // Padding để tàu không pop in/out ở edge khi pan
+    //   const padLng = (maxLng - minLng) * 0.1;
+    //   const padLat = (maxLat - minLat) * 0.1;
+
+    //   let writeIdx = 0;
+    //   for (let i = 0; i < active.length && writeIdx < MAX_TRAINS; i++) {
+    //     const train = active[i];
+    //     const lng = train.position[0];
+    //     const lat = train.position[1];
+
+    //     // Cull
+    //     if (
+    //       lng < minLng - padLng ||
+    //       lng > maxLng + padLng ||
+    //       lat < minLat - padLat ||
+    //       lat > maxLat + padLat
+    //     ) {
+    //       continue;
+    //     }
+
+    //     const mx = lngToMercX(lng);
+    //     const my = latToMercY(lat);
+    //     const x = (mx - originMercX) * meterPerMercUnit;
+    //     const z = (my - originMercY) * meterPerMercUnit;
+
+    //     const bi = writeIdx * 3;
+    //     instanceData[bi] = x;
+    //     instanceData[bi + 1] = z;
+    //     instanceData[bi + 2] = -(train.bearing * Math.PI) / 180;
+
+    //     const [r, g, b] = getRailwayColorRGB(train.timetable.railway);
+    //     instanceColors[bi] = r;
+    //     instanceColors[bi + 1] = g;
+    //     instanceColors[bi + 2] = b;
+
+    //     writeIdx++;
+    //   }
+
+    //   mesh.count = writeIdx;
+    //   instancePosAttr.addUpdateRange(0, writeIdx * 3);
+    //   instancePosAttr.needsUpdate = true;
+    //   instanceColorAttr.addUpdateRange(0, writeIdx * 3);
+    //   instanceColorAttr.needsUpdate = true;
+    // },
     onRender() {
       if (!mesh || !instancePosAttr || !instanceColorAttr) return;
 
@@ -181,50 +275,38 @@ export function addTrainsThreeLayer(
         return;
       }
 
+      const clock = useClockStore.getState();
+      const isSimulating = clock.frozen || clock.offsetMs !== 0;
+      const realtimeEntries = isSimulating
+        ? null
+        : useTrainsRealtimeStore.getState().entries;
+
+      const currentSeconds = getCurrentSeconds();
+
       const active = getActiveTrains(
         timetables,
-        getCurrentSeconds(),
+        currentSeconds,
         stationsById,
         pathIndex,
+        realtimeEntries
+          ? (railway, trainNumber) => {
+              const key = makeRealtimeKey(railway, trainNumber);
+              return realtimeEntries.get(key)?.delay ?? 0;
+            }
+          : undefined,
       );
+
       lastActive = active;
 
-      //  Frustum culling theo viewport
-      const bounds = map.getBounds();
-      if (!bounds) {
-        mesh.count = 0;
-        return;
-      }
-      const minLng = bounds.getWest();
-      const maxLng = bounds.getEast();
-      const minLat = bounds.getSouth();
-      const maxLat = bounds.getNorth();
-      // Padding để tàu không pop in/out ở edge khi pan
-      const padLng = (maxLng - minLng) * 0.1;
-      const padLat = (maxLat - minLat) * 0.1;
-
-      let writeIdx = 0;
-      for (let i = 0; i < active.length && writeIdx < MAX_TRAINS; i++) {
+      const count = Math.min(active.length, MAX_TRAINS);
+      for (let i = 0; i < count; i++) {
         const train = active[i];
-        const lng = train.position[0];
-        const lat = train.position[1];
-
-        // Cull
-        if (
-          lng < minLng - padLng ||
-          lng > maxLng + padLng ||
-          lat < minLat - padLat ||
-          lat > maxLat + padLat
-        ) {
-          continue;
-        }
-
-        const mx = lngToMercX(lng);
-        const my = latToMercY(lat);
+        const mx = lngToMercX(train.position[0]);
+        const my = latToMercY(train.position[1]);
         const x = (mx - originMercX) * meterPerMercUnit;
         const z = (my - originMercY) * meterPerMercUnit;
 
-        const bi = writeIdx * 3;
+        const bi = i * 3;
         instanceData[bi] = x;
         instanceData[bi + 1] = z;
         instanceData[bi + 2] = -(train.bearing * Math.PI) / 180;
@@ -233,14 +315,12 @@ export function addTrainsThreeLayer(
         instanceColors[bi] = r;
         instanceColors[bi + 1] = g;
         instanceColors[bi + 2] = b;
-
-        writeIdx++;
       }
 
-      mesh.count = writeIdx;
-      instancePosAttr.addUpdateRange(0, writeIdx * 3);
+      mesh.count = count;
+      instancePosAttr.addUpdateRange(0, count * 3);
       instancePosAttr.needsUpdate = true;
-      instanceColorAttr.addUpdateRange(0, writeIdx * 3);
+      instanceColorAttr.addUpdateRange(0, count * 3);
       instanceColorAttr.needsUpdate = true;
     },
   });

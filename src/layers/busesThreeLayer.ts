@@ -4,15 +4,21 @@ import type { Map as MapboxMap } from "mapbox-gl";
 import mapboxgl from "mapbox-gl";
 
 import { createThreeLayer } from "./ThreeLayer";
-import { useBusesStore, getBusInterpolatedState } from "@/stores/busesStore";
+import {
+  getActiveBuses,
+  type ActiveBus,
+  type BusDelayLookup,
+} from "@/helpers/busPositions";
+import type { GtfsStaticData } from "@/helpers/gtfsStatic";
+import { useBusVehiclesStore } from "@/stores/busVehiclesStore";
 
 const LAYER_ID = "buses-3d";
-const MAX_BUSES = 8000;
+const MAX_BUSES = 6000;
 
-// Bus nhỏ hơn train
-const BUS_LENGTH = 12;
-const BUS_WIDTH = 2.5;
-const BUS_HEIGHT = 3;
+const BUS_LENGTH = 100;
+const BUS_WIDTH = 40;
+const BUS_HEIGHT = 40;
+const EARTH_RADIUS = 6371008.8;
 
 function lngToMercX(lng: number) {
   return (lng + 180) / 360;
@@ -22,19 +28,41 @@ function latToMercY(lat: number) {
   return 0.5 - Math.log((1 + sin) / (1 - sin)) / (4 * Math.PI);
 }
 
+export interface BusPickResult {
+  tripId: string;
+  agencyId: string;
+  vehicleId?: string;
+  color: string;
+  position: [number, number];
+  bearing: number;
+  routeId: string;
+  routeShortName?: string;
+  routeLongName?: string;
+  headsign?: string;
+  state: "standing" | "moving";
+  segmentIndex: number;
+  segmentProgress: number;
+  delay: number;
+}
+
 export interface AddBusesThreeLayerOptions {
   map: MapboxMap;
   origin: [number, number];
+  staticData: Map<string, GtfsStaticData>;
+  getCurrentSeconds: () => number;
+  /** Optional: lookup delay theo tripId (sẽ wire ở Bước 3) */
+  getDelay?: BusDelayLookup;
 }
 
 export interface BusesLayerHandle {
   remove: () => void;
+  pickAt: (point: { x: number; y: number }) => BusPickResult | null;
 }
 
 export function addBusesThreeLayer(
   options: AddBusesThreeLayerOptions,
 ): BusesLayerHandle {
-  const { map, origin } = options;
+  const { map, origin, staticData, getCurrentSeconds, getDelay } = options;
 
   const originMerc = mapboxgl.MercatorCoordinate.fromLngLat(origin, 0);
   const meterPerMercUnit = 1 / originMerc.meterInMercatorCoordinateUnits();
@@ -59,6 +87,7 @@ export function addBusesThreeLayer(
   let mesh: THREE.InstancedMesh | null = null;
   let posAttr: THREE.InstancedBufferAttribute | null = null;
   let colorAttr: THREE.InstancedBufferAttribute | null = null;
+  let lastActive: ActiveBus[] = [];
 
   const layer = createThreeLayer({
     id: LAYER_ID,
@@ -112,58 +141,33 @@ export function addBusesThreeLayer(
     onRender() {
       if (!mesh || !posAttr || !colorAttr) return;
 
-      const buses = useBusesStore.getState().buses;
-      const now = performance.now();
+      const currentSeconds = getCurrentSeconds();
+      const active = getActiveBuses(staticData, currentSeconds, getDelay);
+      lastActive = active;
 
-      const bounds = map.getBounds();
-      if (!bounds) {
-        mesh.count = 0;
-        return;
-      }
-      const minLng = bounds.getWest();
-      const maxLng = bounds.getEast();
-      const minLat = bounds.getSouth();
-      const maxLat = bounds.getNorth();
-      const padLng = (maxLng - minLng) * 0.1;
-      const padLat = (maxLat - minLat) * 0.1;
-
-      let writeIdx = 0;
-      for (const bus of buses.values()) {
-        if (writeIdx >= MAX_BUSES) break;
-
-        const { position, bearing } = getBusInterpolatedState(bus, now);
-        const lng = position[0];
-        const lat = position[1];
-
-        if (
-          lng < minLng - padLng ||
-          lng > maxLng + padLng ||
-          lat < minLat - padLat ||
-          lat > maxLat + padLat
-        ) {
-          continue;
-        }
-
-        const mx = lngToMercX(lng);
-        const my = latToMercY(lat);
+      const count = Math.min(active.length, MAX_BUSES);
+      for (let i = 0; i < count; i++) {
+        const bus = active[i];
+        const mx = lngToMercX(bus.position[0]);
+        const my = latToMercY(bus.position[1]);
         const x = (mx - originMercX) * meterPerMercUnit;
         const z = (my - originMercY) * meterPerMercUnit;
 
-        const bi = writeIdx * 3;
+        const bi = i * 3;
         instanceData[bi] = x;
         instanceData[bi + 1] = z;
-        instanceData[bi + 2] = -(bearing * Math.PI) / 180;
+        instanceData[bi + 2] = -(bus.bearing * Math.PI) / 180;
 
         const [r, g, b] = cachedRGB(bus.color);
         instanceColors[bi] = r;
         instanceColors[bi + 1] = g;
         instanceColors[bi + 2] = b;
-
-        writeIdx++;
       }
 
-      mesh.count = writeIdx;
+      mesh.count = count;
+      posAttr.addUpdateRange(0, count * 3);
       posAttr.needsUpdate = true;
+      colorAttr.addUpdateRange(0, count * 3);
       colorAttr.needsUpdate = true;
     },
   });
@@ -180,5 +184,66 @@ export function addBusesThreeLayer(
         /* empty */
       }
     },
+
+    pickAt({ x, y }) {
+      if (!mesh) return null;
+      let lngLat: mapboxgl.LngLat;
+      try {
+        if (!map.getCanvas()) return null;
+        lngLat = map.unproject([x, y]);
+      } catch {
+        return null;
+      }
+
+      const zoom = map.getZoom();
+      const thresholdMeters = Math.max(20, 600 / Math.pow(2, zoom - 12));
+
+      let bestIdx = -1;
+      let bestDist = Infinity;
+      for (let i = 0; i < lastActive.length; i++) {
+        const bus = lastActive[i];
+        const d = haversineDistance([lngLat.lng, lngLat.lat], bus.position);
+        if (d < thresholdMeters && d < bestDist) {
+          bestDist = d;
+          bestIdx = i;
+        }
+      }
+      if (bestIdx === -1) return null;
+
+      const bus = lastActive[bestIdx];
+      const data = staticData.get(bus.agencyId);
+      const route = data?.routes.get(bus.timetable.routeId);
+      const trip = data?.trips.get(bus.timetable.tripId);
+
+      return {
+        tripId: bus.timetable.tripId,
+        agencyId: bus.agencyId,
+        vehicleId: useBusVehiclesStore
+          .getState()
+          .tripToVehicle.get(bus.timetable.tripId),
+        color: bus.color,
+        position: bus.position,
+        bearing: bus.bearing,
+        routeId: bus.timetable.routeId,
+        routeShortName: route?.shortName,
+        routeLongName: route?.longName,
+        headsign: trip?.headsign,
+        state: bus.state,
+        segmentIndex: bus.segmentIndex,
+        segmentProgress: bus.segmentProgress,
+        delay: bus.delay,
+      };
+    },
   };
+}
+
+function haversineDistance(a: [number, number], b: [number, number]): number {
+  const lat1 = (a[1] * Math.PI) / 180;
+  const lat2 = (b[1] * Math.PI) / 180;
+  const dLat = lat2 - lat1;
+  const dLng = ((b[0] - a[0]) * Math.PI) / 180;
+  const h =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
+  return 2 * EARTH_RADIUS * Math.asin(Math.sqrt(h));
 }

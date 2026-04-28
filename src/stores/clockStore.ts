@@ -107,3 +107,16 @@ export function startClockTicker() {
   tickerStarted = true;
   setInterval(() => useClockStore.getState().tick(), 1000);
 }
+
+export function getEffectiveNow() {
+  const s = useClockStore.getState();
+  if (s.frozen && s.frozenAt) return s.frozenAt;
+  return dayjs().tz(TOKYO_TZ).add(s.offsetMs, "millisecond");
+}
+
+export function getEffectiveSeconds(): number {
+  const t = getEffectiveNow();
+  return (
+    t.hour() * 3600 + t.minute() * 60 + t.second() + t.millisecond() / 1000
+  );
+}

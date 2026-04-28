@@ -33,6 +33,8 @@ import {
   removeBusShapesLayer,
 } from "@/layers/busShapesLayer";
 import { addBusStopsLayer, removeBusStopsLayer } from "@/layers/busStopsLayer";
+import BusOverlay from "@/components/ui/BusOverlay";
+import { startOdptTrainsPoller } from "@/data/odptPoller";
 
 mapboxgl.accessToken = import.meta.env.VITE_MAPBOX_TOKEN;
 
@@ -59,6 +61,8 @@ export default function MapView({ onMapLoad }: MapProps) {
 
   const gtfsStaticRef = useRef<GtfsLoadResult | null>(null);
 
+  const odptTrainsPollerRef = useRef<{ stop: () => void } | null>(null);
+
   // ============== State ==============
   const [config] = useState<MapConfig>(INITIAL_CONFIG);
   const [activeCamera, setActiveCamera] = useState<LivecamData | null>(null);
@@ -72,6 +76,8 @@ export default function MapView({ onMapLoad }: MapProps) {
     string
   > | null>(null);
 
+  const [busesHandle, setBusesHandle] = useState<BusesLayerHandle | null>(null);
+
   // ============== Store subscriptions ==============
   const plateauEnabled = useLayersStore((s) => s.enabled.has("plateau"));
   const livecamEnabled = useLayersStore((s) => s.enabled.has("live-cameras"));
@@ -84,6 +90,16 @@ export default function MapView({ onMapLoad }: MapProps) {
   const setSvPosition = useStreetViewStore((s) => s.setPosition);
   const floodLevel = useFloodStore((s) => s.level);
   const floodScenario = useFloodStore((s) => s.scenario);
+
+  const getBusCurrentSeconds = () => {
+    const state = useClockStore.getState();
+    const baseSec =
+      state.now.hour() * 3600 + state.now.minute() * 60 + state.now.second();
+    if (state.frozen) return baseSec;
+    if (state.lastTickAt === 0) return baseSec;
+    const elapsedMs = Math.min(performance.now() - state.lastTickAt, 1000);
+    return baseSec + elapsedMs / 1000;
+  };
 
   // ============== Helpers ==============
   const moveRailwaysToTop = useCallback(() => {
@@ -174,6 +190,10 @@ export default function MapView({ onMapLoad }: MapProps) {
         });
         setTrainsHandle(trainsRef.current);
 
+        odptTrainsPollerRef.current = startOdptTrainsPoller({
+          consumerKey: import.meta.env.VITE_ODPT_CONSUMER_KEY,
+        });
+
         const titles = new Map<string, string>();
         for (const s of stations) {
           titles.set(s.id, s.title?.en ?? s.title?.ja ?? s.id);
@@ -208,6 +228,9 @@ export default function MapView({ onMapLoad }: MapProps) {
       trainsRef.current = null;
       setTrainsHandle(null);
 
+      odptTrainsPollerRef.current?.stop();
+      odptTrainsPollerRef.current = null;
+
       plateauRef.current?.disable();
       livecamRef.current?.disable();
       precipitationRef.current?.disable();
@@ -228,6 +251,7 @@ export default function MapView({ onMapLoad }: MapProps) {
       floodRef.current = null;
       styleLoadedRef.current = false;
       setMapInstance(null);
+      setBusesHandle(null);
     };
   }, [onMapLoad, config, moveRailwaysToTop]); // ← chỉ giữ 3 cái stable
 
@@ -369,7 +393,11 @@ export default function MapView({ onMapLoad }: MapProps) {
       busesRef.current = addBusesThreeLayer({
         map,
         origin: [139.767, 35.681],
+        staticData: gtfsStaticRef.current.staticData,
+        getCurrentSeconds: getBusCurrentSeconds,
       });
+
+      setBusesHandle(busesRef.current);
 
       pollerRef.current = startGtfsPoller({
         consumerKey: import.meta.env.VITE_ODPT_CONSUMER_KEY,
@@ -383,6 +411,7 @@ export default function MapView({ onMapLoad }: MapProps) {
       busesRef.current = null;
       removeBusShapesLayer(map);
       removeBusStopsLayer(map);
+      setBusesHandle(null);
     };
 
     if (gtfsEnabled) {
@@ -439,6 +468,7 @@ export default function MapView({ onMapLoad }: MapProps) {
         trainsHandle={trainsHandle}
         stationTitles={stationTitles ?? undefined}
       />
+      <BusOverlay map={mapInstance} busesHandle={busesHandle} />
     </div>
   );
 }

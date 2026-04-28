@@ -3,7 +3,7 @@ import { GTFS_SOURCES, type GtfsSourceConfig } from "./gtfsStatic";
 import { fetchVehiclePositions } from "./gtfsRealtime";
 import { useBusesStore } from "@/stores/busesStore";
 
-const POLL_INTERVAL_MS = 30_000;
+const POLL_INTERVAL_MS = 10_000;
 const STALE_TIMEOUT_MS = 5 * 60_000; // bus mất tích > 5 phút thì xoá
 
 export interface GtfsPollerOptions {

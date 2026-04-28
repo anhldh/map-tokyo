@@ -40,7 +40,7 @@ export async function loadAllGtfsStatic(
         allShapes.push(shapesToGeoJSON(data, source));
         allStops.push(stopsToGeoJSON(data, source));
         console.log(
-          `[gtfs] ${source.agencyId}: ${data.routes.size} routes, ${data.shapes.size} shapes, ${data.stops.size} stops`,
+          `[gtfs] ${source.agencyId}: ${data.routes.size} routes, ${data.shapes.size} shapes, ${data.stops.size} stops, ${data.busTimetables.length} trips, ${data.shapePathIndex.paths.size} paths`,
         );
       } catch (err) {
         console.warn(`[gtfs] failed to load ${source.agencyId}:`, err);

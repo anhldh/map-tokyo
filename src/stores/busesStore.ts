@@ -96,13 +96,14 @@ export const useBusesStore = create<BusesStore>((set, get) => ({
   },
 }));
 
-/** Tính vị trí interpolate hiện tại của 1 bus */
+// busesStore.ts — sửa getBusInterpolatedState
 export function getBusInterpolatedState(
   bus: BusState,
   now: number,
 ): { position: [number, number]; bearing: number } {
   const { prev, current } = bus;
 
+  // Không có prev → render thẳng tại current (không bị "chờ")
   if (!prev) {
     return {
       position: current.position,
@@ -110,7 +111,6 @@ export function getBusInterpolatedState(
     };
   }
 
-  // Lerp giữa prev → current. Estimate t dựa trên thời gian đã trôi.
   const interval = current.receivedAt - prev.receivedAt;
   if (interval <= 0) {
     return {
@@ -119,30 +119,30 @@ export function getBusInterpolatedState(
     };
   }
 
-  // Cho phép extrapolate nhẹ (max 1.2x) để không đứng yên khi feed delay
+  // Interpolation thật: t ∈ [0, 1] đi từ prev → current
+  // trong khoảng thời gian = interval, bắt đầu từ lúc nhận current.
   const elapsed = now - current.receivedAt;
-  const t = Math.min(1.2, 1 + elapsed / interval);
+  const t = Math.min(1, elapsed / interval);
 
   const lng = prev.position[0] + t * (current.position[0] - prev.position[0]);
   const lat = prev.position[1] + t * (current.position[1] - prev.position[1]);
 
-  // Bearing: ưu tiên current, fallback tính từ direction prev→current
-  let bearing = current.bearing;
-  if (bearing === undefined) {
-    const dLng = current.position[0] - prev.position[0];
-    const dLat = current.position[1] - prev.position[1];
-    if (dLng !== 0 || dLat !== 0) {
-      const lat1 = (prev.position[1] * Math.PI) / 180;
-      const lat2 = (current.position[1] * Math.PI) / 180;
-      const dLngRad = (dLng * Math.PI) / 180;
-      const y = Math.sin(dLngRad) * Math.cos(lat2);
-      const x =
-        Math.cos(lat1) * Math.sin(lat2) -
-        Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLngRad);
-      bearing = ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
-    } else {
-      bearing = 0;
-    }
+  // Bearing từ direction prev→current (constant trong segment này)
+  const dLng = current.position[0] - prev.position[0];
+  const dLat = current.position[1] - prev.position[1];
+
+  let bearing: number;
+  if (Math.abs(dLng) < 1e-7 && Math.abs(dLat) < 1e-7) {
+    bearing = current.bearing ?? prev.bearing ?? 0;
+  } else {
+    const lat1 = (prev.position[1] * Math.PI) / 180;
+    const lat2 = (current.position[1] * Math.PI) / 180;
+    const dLngRad = (dLng * Math.PI) / 180;
+    const y = Math.sin(dLngRad) * Math.cos(lat2);
+    const x =
+      Math.cos(lat1) * Math.sin(lat2) -
+      Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLngRad);
+    bearing = ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
   }
 
   return { position: [lng, lat], bearing };

@@ -116,54 +116,6 @@ export function sampleAtDistance(
   return { position: [lng, lat], bearing };
 }
 
-// export function buildRailwayPathIndex(
-//   features: FeatureCollection,
-//   stationsById: Map<
-//     string,
-//     { id: string; railway: string; coord: [number, number] }
-//   >,
-//   preferredZoom = 18,
-// ): RailwayPathIndex {
-//   const paths = new Map<string, RailwayPath>();
-
-//   // Pick LineString cho mỗi railway ở zoom mong muốn
-//   const candidatesByRailway = new Map<string, Feature<LineString>[]>();
-//   for (const feat of features.features) {
-//     if (feat.geometry?.type !== "LineString") continue;
-//     const props = feat.properties ?? {};
-//     const railwayId = props.id ?? props.railway;
-//     if (typeof railwayId !== "string") continue;
-
-//     const list = candidatesByRailway.get(railwayId) ?? [];
-//     list.push(feat as Feature<LineString>);
-//     candidatesByRailway.set(railwayId, list);
-//   }
-
-//   for (const [railwayId, feats] of candidatesByRailway) {
-//     // Ưu tiên đúng preferredZoom, fallback feature đầu tiên
-//     const chosen =
-//       feats.find((f) => f.properties?.zoom === preferredZoom) ?? feats[0];
-//     paths.set(railwayId, buildPath(chosen.geometry.coordinates));
-//   }
-
-//   // Tính offset của từng station trên path tương ứng
-//   const stationOffsets = new Map<string, Map<string, StationOffset>>();
-//   for (const station of stationsById.values()) {
-//     const path = paths.get(station.railway);
-//     if (!path) continue;
-
-//     let map = stationOffsets.get(station.railway);
-//     if (!map) {
-//       map = new Map();
-//       stationOffsets.set(station.railway, map);
-//     }
-//     map.set(station.id, { distance: projectOnPath(path, station.coord) });
-//   }
-
-//   return { paths, stationOffsets };
-// }
-
-// railwayPath.ts — sửa buildRailwayPathIndex
 export function buildRailwayPathIndex(
   features: FeatureCollection,
   stationsById: Map<

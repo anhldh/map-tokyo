@@ -1,5 +1,26 @@
 // src/data/gtfsStatic.ts
 import JSZip from "jszip";
+import {
+  buildShapePathIndex,
+  projectStopOnShape,
+  type ShapePathIndex,
+} from "./shapePath";
+
+export interface BusTimetable {
+  tripId: string;
+  routeId: string;
+  shapeId?: string;
+  serviceId?: string;
+  stops: string[];
+  /** Seconds since midnight; -1 nếu thiếu data */
+  arrivals: number[];
+  departures: number[];
+  /** Cumulative distance trên shape tại mỗi stop (mét); -1 nếu không tính được */
+  stopOffsets: number[];
+  /** First valid time across arrivals/departures */
+  start: number;
+  end: number;
+}
 
 export interface GtfsRoute {
   id: string;
@@ -33,6 +54,9 @@ export interface GtfsStaticData {
   stops: Map<string, GtfsStop>;
   shapes: Map<string, GtfsShape>;
   trips: Map<string, GtfsTrip>;
+
+  busTimetables: BusTimetable[]; // ← thêm
+  shapePathIndex: ShapePathIndex;
   /** Operator color override từ config */
   operatorColor: string;
 }
@@ -106,6 +130,17 @@ function parseCsvLine(line: string): string[] {
   return result;
 }
 
+function parseGtfsTime(s: string): number {
+  if (!s) return -1;
+  const parts = s.split(":");
+  if (parts.length !== 3) return -1;
+  const h = parseInt(parts[0], 10);
+  const m = parseInt(parts[1], 10);
+  const sec = parseInt(parts[2], 10);
+  if (isNaN(h) || isNaN(m) || isNaN(sec)) return -1;
+  return h * 3600 + m * 60 + sec;
+}
+
 export async function loadGtfsStatic(
   source: GtfsSourceConfig,
 ): Promise<GtfsStaticData> {
@@ -122,14 +157,17 @@ export async function loadGtfsStatic(
     return file.async("string");
   };
 
-  const [routesText, stopsText, shapesText, tripsText] = await Promise.all([
-    readFile("routes.txt"),
-    readFile("stops.txt"),
-    readFile("shapes.txt").catch(() => ""),
-    readFile("trips.txt"),
-  ]);
+  // ← thêm stop_times vào danh sách parallel fetch
+  const [routesText, stopsText, shapesText, tripsText, stopTimesText] =
+    await Promise.all([
+      readFile("routes.txt"),
+      readFile("stops.txt"),
+      readFile("shapes.txt").catch(() => ""),
+      readFile("trips.txt"),
+      readFile("stop_times.txt").catch(() => ""),
+    ]);
 
-  // Routes
+  // === Routes (giữ nguyên) ===
   const routes = new Map<string, GtfsRoute>();
   for (const r of parseCsv(routesText)) {
     routes.set(r.route_id, {
@@ -141,7 +179,7 @@ export async function loadGtfsStatic(
     });
   }
 
-  // Stops
+  // === Stops (giữ nguyên) ===
   const stops = new Map<string, GtfsStop>();
   for (const s of parseCsv(stopsText)) {
     if (!s.stop_lat || !s.stop_lon) continue;
@@ -152,7 +190,7 @@ export async function loadGtfsStatic(
     });
   }
 
-  // Shapes (group by shape_id, sort by sequence)
+  // === Shapes (giữ nguyên) ===
   const shapes = new Map<string, GtfsShape>();
   if (shapesText) {
     const shapeRows = parseCsv(shapesText);
@@ -166,7 +204,6 @@ export async function loadGtfsStatic(
       const lng = parseFloat(row.shape_pt_lon);
       const lat = parseFloat(row.shape_pt_lat);
       if (!id || isNaN(seq) || isNaN(lng) || isNaN(lat)) continue;
-
       let arr = grouped.get(id);
       if (!arr) {
         arr = [];
@@ -180,7 +217,7 @@ export async function loadGtfsStatic(
     }
   }
 
-  // Trips
+  // === Trips — sửa để giữ thêm serviceId ===
   const trips = new Map<string, GtfsTrip>();
   for (const t of parseCsv(tripsText)) {
     trips.set(t.trip_id, {
@@ -188,6 +225,103 @@ export async function loadGtfsStatic(
       routeId: t.route_id,
       shapeId: t.shape_id || undefined,
       headsign: t.trip_headsign || undefined,
+      // serviceId: t.service_id || undefined, // ← thêm vào GtfsTrip nếu cần
+    });
+  }
+
+  // === Build shape path index ===
+  const shapePathIndex = buildShapePathIndex(shapes);
+
+  // === Parse stop_times → group by trip_id ===
+  type StopTimeRow = {
+    sequence: number;
+    stopId: string;
+    arrival: number;
+    departure: number;
+  };
+  const stopTimesByTrip = new Map<string, StopTimeRow[]>();
+
+  if (stopTimesText) {
+    for (const row of parseCsv(stopTimesText)) {
+      const tripId = row.trip_id;
+      if (!tripId) continue;
+      const sequence = parseInt(row.stop_sequence, 10);
+      if (isNaN(sequence)) continue;
+      const arrival = parseGtfsTime(row.arrival_time);
+      const departure = parseGtfsTime(row.departure_time);
+      let arr = stopTimesByTrip.get(tripId);
+      if (!arr) {
+        arr = [];
+        stopTimesByTrip.set(tripId, arr);
+      }
+      arr.push({
+        sequence,
+        stopId: row.stop_id,
+        arrival,
+        departure,
+      });
+    }
+  }
+
+  // === Build BusTimetable per trip ===
+  const busTimetables: BusTimetable[] = [];
+  for (const [tripId, rows] of stopTimesByTrip) {
+    const trip = trips.get(tripId);
+    if (!trip) continue;
+
+    rows.sort((a, b) => a.sequence - b.sequence);
+
+    const stopIds = rows.map((r) => r.stopId);
+    const arrivals = rows.map((r) => r.arrival);
+    const departures = rows.map((r) => r.departure);
+
+    // Compute stop offsets on shape (monotonic search)
+    const stopOffsets: number[] = new Array(stopIds.length).fill(-1);
+    if (trip.shapeId) {
+      const path = shapePathIndex.paths.get(trip.shapeId);
+      if (path) {
+        let searchFromIdx = 0;
+        for (let i = 0; i < stopIds.length; i++) {
+          const stop = stops.get(stopIds[i]);
+          if (!stop) continue;
+          const { distance, vertexIdx } = projectStopOnShape(
+            stop.coord,
+            path,
+            searchFromIdx,
+          );
+          stopOffsets[i] = distance;
+          searchFromIdx = vertexIdx;
+        }
+      }
+    }
+
+    // Compute start/end (skip -1)
+    let start = Infinity;
+    let end = -Infinity;
+    for (const t of arrivals) {
+      if (t >= 0) {
+        if (t < start) start = t;
+        if (t > end) end = t;
+      }
+    }
+    for (const t of departures) {
+      if (t >= 0) {
+        if (t < start) start = t;
+        if (t > end) end = t;
+      }
+    }
+    if (!isFinite(start)) continue; // không có time hợp lệ → skip trip
+
+    busTimetables.push({
+      tripId,
+      routeId: trip.routeId,
+      shapeId: trip.shapeId,
+      stops: stopIds,
+      arrivals,
+      departures,
+      stopOffsets,
+      start,
+      end,
     });
   }
 
@@ -196,6 +330,8 @@ export async function loadGtfsStatic(
     stops,
     shapes,
     trips,
+    busTimetables,
+    shapePathIndex,
     operatorColor: source.color,
   };
 }
