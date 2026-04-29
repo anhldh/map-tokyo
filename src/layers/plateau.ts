@@ -229,7 +229,11 @@ export class PlateauPlugin {
         type: Tile3DLayer,
         data: url,
         loadOptions: {
-          tileset: { throttleRequests: false },
+          tileset: {
+            throttleRequests: true,
+            maxRequests: 12,
+          },
+          worker: true,
         },
         opacity: 0.8,
         onTileLoad: (tile: any) => {
