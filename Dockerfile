@@ -6,8 +6,14 @@ RUN bun install --frozen-lockfile
 
 COPY . .
 RUN bun run build
+FROM oven/bun:alpine AS runner
+WORKDIR /app
 
-FROM nginx:alpine
-COPY --from=builder /app/dist /usr/share/nginx/html
-COPY nginx.conf /etc/nginx/conf.d/default.conf
-EXPOSE 80
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/server.ts ./
+COPY --from=builder /app/package.json ./
+
+ENV PORT=5173
+EXPOSE 5173
+
+CMD ["bun", "run", "server.ts"]
