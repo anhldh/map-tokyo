@@ -4,7 +4,7 @@ import { Train, MapPin, ArrowRight } from "lucide-react";
 import type {
   TrainsLayerHandle,
   TrainPickResult,
-} from "@/layers/trainThreeLayer";
+} from "@/layers/trainsThreeLayer";
 import TrainTimelinePanel from "../common/TrainTimelinePanel";
 
 interface TrainOverlayProps {

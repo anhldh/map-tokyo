@@ -1,7 +1,7 @@
 import styled from "@emotion/styled";
 import { X } from "lucide-react";
 import { useEffect, useRef } from "react";
-import type { TrainPickResult } from "@/layers/trainThreeLayer";
+import type { TrainPickResult } from "@/layers/trainsThreeLayer";
 import { PANEL_BORDER, ACCENT_COLOR } from "@/styles/constants";
 
 interface Props {

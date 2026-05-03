@@ -9,7 +9,7 @@ import {
 import {
   addTrainsThreeLayer,
   type TrainsLayerHandle,
-} from "@/layers/trainThreeLayer";
+} from "@/layers/trainsThreeLayer";
 import { useClockStore } from "@/stores/clockStore";
 
 export interface TrainAnimationOptions {
