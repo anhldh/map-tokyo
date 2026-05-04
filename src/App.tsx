@@ -6,6 +6,7 @@ import { ACCENT_COLOR } from "./styles/constants";
 import { startClockTicker } from "./stores/clockStore";
 import MapView from "./map/Map";
 import "@/services/openaqProbe";
+import { MeasureController } from "./layers/distance/MeasureController";
 
 const App = () => {
   const [map, setMap] = useState<mapboxgl.Map | null>(null);
@@ -32,6 +33,7 @@ const App = () => {
       >
         <MapView onMapLoad={setMap} />
         <MapOverlay map={map} />
+        {map && <MeasureController map={map} />}
       </div>
     </ConfigProvider>
   );

@@ -9,6 +9,7 @@ import {
   Hand,
   MousePointer,
   PersonStanding,
+  RulerDimensionLine,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { INITIAL_VIEW } from "@/map/mapConfig";
@@ -26,6 +27,7 @@ import ClockUI from "../common/Clock";
 import { useStreetViewStore } from "@/stores/streetViewStore";
 import FloodPopover from "../common/FloodPopover";
 import TimePopover from "../common/TimePopover";
+import { useMeasureStore } from "@/stores/measureStore";
 
 interface MapOverlayProps {
   map: mapboxgl.Map | null;
@@ -104,6 +106,26 @@ const Divider = styled.div`
 `;
 
 const MapOverlay = ({ map }: MapOverlayProps) => {
+  const isActive = useMeasureStore((s) => s.isActive);
+  const activate = useMeasureStore((s) => s.activate);
+  const deactivate = useMeasureStore((s) => s.deactivate);
+
+  const handleClick = () => {
+    if (!map) return;
+
+    if (isActive) {
+      deactivate();
+    } else {
+      const center = map.getCenter();
+      activate({
+        center: [center.lng, center.lat],
+        zoom: map.getZoom(),
+        pitch: map.getPitch(),
+        bearing: map.getBearing(),
+      });
+    }
+  };
+
   const [bearing, setBearing] = useState(0);
   const keyboardMode = useMapInteractionStore((s) => s.keyboardMode);
   const toggleKeyboardMode = useMapInteractionStore(
@@ -221,6 +243,9 @@ const MapOverlay = ({ map }: MapOverlayProps) => {
             placement="left"
           >
             <Keyboard size={18} />
+          </IconButton>
+          <IconButton title="Đo lường" onClick={handleClick} placement="left">
+            <RulerDimensionLine size={18} />
           </IconButton>
         </FloatingPanelVertical>
       </RightControls>
