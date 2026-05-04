@@ -8,18 +8,28 @@ export const MEASURE_PREVIEW_SOURCE_ID = "measure-preview-source";
 export function addMeasureLayers(map: MapboxMap) {
   if (map.getSource(MEASURE_SOURCE_ID)) return;
 
-  // Source chính
   map.addSource(MEASURE_SOURCE_ID, {
     type: "geojson",
     data: { type: "FeatureCollection", features: [] },
   });
-
   map.addSource(MEASURE_PREVIEW_SOURCE_ID, {
     type: "geojson",
     data: { type: "FeatureCollection", features: [] },
   });
 
-  // Preview line (dashed, mờ)
+  // Polygon fill (cho measurement đã closed)
+  map.addLayer({
+    id: "measure-fill",
+    type: "fill",
+    source: MEASURE_SOURCE_ID,
+    filter: ["==", ["get", "kind"], "fill"],
+    paint: {
+      "fill-color": ACCENT_COLOR,
+      "fill-opacity": 0.15,
+    },
+  });
+
+  // Preview line
   map.addLayer({
     id: "measure-preview-line",
     type: "line",
@@ -33,7 +43,7 @@ export function addMeasureLayers(map: MapboxMap) {
     },
   });
 
-  // Line đã chốt
+  // Segment line
   map.addLayer({
     id: "measure-line",
     type: "line",
@@ -45,21 +55,21 @@ export function addMeasureLayers(map: MapboxMap) {
     },
   });
 
-  // Vertex (điểm chấm)
+  // Vertex — điểm đầu to hơn để user biết click vào để đóng
   map.addLayer({
     id: "measure-vertex",
     type: "circle",
     source: MEASURE_SOURCE_ID,
     filter: ["==", ["get", "kind"], "vertex"],
     paint: {
-      "circle-radius": 6,
+      "circle-radius": ["case", ["==", ["get", "isFirst"], true], 7, 5],
       "circle-color": ACCENT_COLOR,
       "circle-stroke-color": "#ffffff",
       "circle-stroke-width": 2,
     },
   });
 
-  // Label khoảng cách
+  // Label
   map.addLayer({
     id: "measure-label",
     type: "symbol",
@@ -80,7 +90,6 @@ export function addMeasureLayers(map: MapboxMap) {
     },
   });
 
-  // Preview label
   map.addLayer({
     id: "measure-preview-label",
     type: "symbol",
@@ -89,7 +98,6 @@ export function addMeasureLayers(map: MapboxMap) {
     layout: {
       "text-field": ["get", "label"],
       "text-size": 11,
-      "text-font": ["Open Sans Regular", "Arial Unicode MS Regular"],
       "text-offset": [0, -1.2],
       "text-anchor": "bottom",
       "text-allow-overlap": true,
@@ -106,10 +114,11 @@ export function addMeasureLayers(map: MapboxMap) {
 export function removeMeasureLayers(map: MapboxMap) {
   [
     "measure-preview-line",
+    "measure-preview-label",
     "measure-line",
     "measure-vertex",
     "measure-label",
-    "measure-preview-label",
+    "measure-fill",
   ].forEach((id) => {
     if (map.getLayer(id)) map.removeLayer(id);
   });

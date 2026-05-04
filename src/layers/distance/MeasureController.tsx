@@ -16,20 +16,20 @@ interface Props {
 }
 
 export function MeasureController({ map }: Props) {
-  // Setup layers 1 lần
   useEffect(() => {
-    if (!map.isStyleLoaded()) {
-      map.once("style.load", () => addMeasureLayers(map));
+    const setup = () => addMeasureLayers(map);
+
+    if (map.isStyleLoaded()) {
+      setup();
     } else {
-      addMeasureLayers(map);
+      map.once("load", setup);
     }
   }, [map]);
 
-  // Bật/tắt mode → đổi camera + cursor
+  // Camera + cursor on toggle
   useEffect(() => {
     const unsub = useMeasureStore.subscribe((state, prev) => {
       if (state.isActive === prev.isActive) return;
-
       if (state.isActive) {
         map.easeTo({ pitch: 0, bearing: 0, duration: 500 });
         map.getCanvas().style.cursor = "crosshair";
@@ -45,58 +45,66 @@ export function MeasureController({ map }: Props) {
           });
         }
         map.getCanvas().style.cursor = "";
-        // Clear data
-        const src = map.getSource(MEASURE_SOURCE_ID);
-        const psrc = map.getSource(MEASURE_PREVIEW_SOURCE_ID);
-        if (src && "setData" in src) {
-          (src as mapboxgl.GeoJSONSource).setData({
-            type: "FeatureCollection",
-            features: [],
-          });
-        }
-        if (psrc && "setData" in psrc) {
-          (psrc as mapboxgl.GeoJSONSource).setData({
-            type: "FeatureCollection",
-            features: [],
-          });
-        }
       }
     });
     return unsub;
   }, [map]);
 
-  // Sync points → main source
+  // Sync main source: rebuild khi measurements thay đổi
   useEffect(() => {
-    const unsub = useMeasureStore.subscribe((state) => {
+    const update = () => {
       const src = map.getSource(MEASURE_SOURCE_ID) as
         | mapboxgl.GeoJSONSource
         | undefined;
       if (!src) return;
-      src.setData(buildMeasureGeoJSON(state.points));
+      src.setData(buildMeasureGeoJSON(useMeasureStore.getState().measurements));
+    };
+
+    update(); // initial
+    const unsub = useMeasureStore.subscribe((state, prev) => {
+      if (state.measurements !== prev.measurements) update();
     });
     return unsub;
   }, [map]);
 
-  // Sync hover → preview source
+  // Sync preview
   useEffect(() => {
-    const unsub = useMeasureStore.subscribe((state) => {
+    const update = () => {
       const src = map.getSource(MEASURE_PREVIEW_SOURCE_ID) as
         | mapboxgl.GeoJSONSource
         | undefined;
       if (!src) return;
-      src.setData(buildPreviewGeoJSON(state.points, state.hoverPoint));
+      const s = useMeasureStore.getState();
+      const active = s.getActive();
+      src.setData(buildPreviewGeoJSON(active, s.hoverPoint));
+    };
+
+    const unsub = useMeasureStore.subscribe((state, prev) => {
+      if (
+        state.hoverPoint !== prev.hoverPoint ||
+        state.activeId !== prev.activeId ||
+        state.measurements !== prev.measurements
+      ) {
+        update();
+      }
     });
     return unsub;
   }, [map]);
 
-  // Click + mousemove + keyboard
+  // Mouse + keyboard handlers
   useEffect(() => {
     const onClick = (e: mapboxgl.MapMouseEvent) => {
       const s = useMeasureStore.getState();
       if (!s.isActive) return;
-      // Chặn picking train/bus khi đang đo
       e.preventDefault();
       s.addPoint([e.lngLat.lng, e.lngLat.lat]);
+    };
+
+    const onDblClick = (e: mapboxgl.MapMouseEvent) => {
+      const s = useMeasureStore.getState();
+      if (!s.isActive) return;
+      e.preventDefault();
+      s.finishActive();
     };
 
     const onMouseMove = (e: mapboxgl.MapMouseEvent) => {
@@ -114,20 +122,40 @@ export function MeasureController({ map }: Props) {
     const onKeyDown = (e: KeyboardEvent) => {
       const s = useMeasureStore.getState();
       if (!s.isActive) return;
-      if (e.key === "Escape") s.deactivate();
-      else if (e.key === "Backspace") s.removeLastPoint();
+      if (e.key === "Escape") {
+        if (s.activeId) s.finishActive();
+        else s.deactivate();
+      } else if (e.key === "Enter") {
+        s.finishActive();
+      } else if (e.key === "Backspace") {
+        s.removeLastPoint();
+      }
     };
 
     map.on("click", onClick);
+    map.on("dblclick", onDblClick);
     map.on("mousemove", onMouseMove);
     map.getCanvas().addEventListener("mouseleave", onMouseLeave);
     window.addEventListener("keydown", onKeyDown);
 
+    // Disable double-click zoom khi đang đo
+    const onActiveChange = () => {
+      const isActive = useMeasureStore.getState().isActive;
+      if (isActive) map.doubleClickZoom.disable();
+      else map.doubleClickZoom.enable();
+    };
+    onActiveChange();
+    const unsubActive = useMeasureStore.subscribe((state, prev) => {
+      if (state.isActive !== prev.isActive) onActiveChange();
+    });
+
     return () => {
       map.off("click", onClick);
+      map.off("dblclick", onDblClick);
       map.off("mousemove", onMouseMove);
       map.getCanvas().removeEventListener("mouseleave", onMouseLeave);
       window.removeEventListener("keydown", onKeyDown);
+      unsubActive();
     };
   }, [map]);
 

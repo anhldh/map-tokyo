@@ -7,6 +7,7 @@ import { startClockTicker } from "./stores/clockStore";
 import MapView from "./map/Map";
 import "@/services/openaqProbe";
 import { MeasureController } from "./layers/distance/MeasureController";
+import { MeasurePanel } from "./components/ui/MeasurePanel";
 
 const App = () => {
   const [map, setMap] = useState<mapboxgl.Map | null>(null);
@@ -34,6 +35,7 @@ const App = () => {
         <MapView onMapLoad={setMap} />
         <MapOverlay map={map} />
         {map && <MeasureController map={map} />}
+        <MeasurePanel />
       </div>
     </ConfigProvider>
   );

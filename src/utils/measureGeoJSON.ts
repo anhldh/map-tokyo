@@ -1,5 +1,9 @@
 import type { FeatureCollection, Feature } from "geojson";
-import { type LngLat, formatDistance } from "@/stores/measureStore";
+import {
+  type LngLat,
+  type Measurement,
+  formatDistance,
+} from "@/stores/measureStore";
 import distance from "@turf/distance";
 import { point as turfPoint } from "@turf/helpers";
 
@@ -11,51 +15,86 @@ function calcDistance(a: LngLat, b: LngLat): number {
   return distance(turfPoint(a), turfPoint(b), { units: "meters" });
 }
 
-/** GeoJSON cho điểm + line + label đã chốt */
-export function buildMeasureGeoJSON(points: LngLat[]): FeatureCollection {
+/** Build features cho 1 measurement */
+function featuresForMeasurement(m: Measurement): Feature[] {
   const features: Feature[] = [];
+  const { id, points, closed } = m;
 
+  // Vertices
   points.forEach((p, i) => {
     features.push({
       type: "Feature",
       geometry: { type: "Point", coordinates: p },
-      properties: { kind: "vertex", index: i },
+      properties: {
+        kind: "vertex",
+        measurementId: id,
+        index: i,
+        isFirst: i === 0, // dùng để highlight điểm đầu khi đang vẽ
+      },
     });
   });
 
+  // Segments + labels
+  const segments: [LngLat, LngLat][] = [];
   for (let i = 1; i < points.length; i++) {
-    const a = points[i - 1];
-    const b = points[i];
-    const dist = calcDistance(a, b);
+    segments.push([points[i - 1], points[i]]);
+  }
+  if (closed && points.length >= 3) {
+    segments.push([points[points.length - 1], points[0]]);
+  }
 
+  segments.forEach(([a, b]) => {
+    const dist = calcDistance(a, b);
     features.push({
       type: "Feature",
       geometry: { type: "LineString", coordinates: [a, b] },
-      properties: { kind: "segment" },
+      properties: { kind: "segment", measurementId: id },
     });
-
     features.push({
       type: "Feature",
       geometry: { type: "Point", coordinates: midpoint(a, b) },
       properties: {
         kind: "label",
+        measurementId: id,
         label: formatDistance(dist),
       },
     });
+  });
+
+  // Polygon fill nếu closed
+  if (closed && points.length >= 3) {
+    features.push({
+      type: "Feature",
+      geometry: {
+        type: "Polygon",
+        coordinates: [[...points, points[0]]],
+      },
+      properties: { kind: "fill", measurementId: id },
+    });
   }
 
+  return features;
+}
+
+export function buildMeasureGeoJSON(
+  measurements: Measurement[],
+): FeatureCollection {
+  const features: Feature[] = [];
+  measurements.forEach((m) => {
+    features.push(...featuresForMeasurement(m));
+  });
   return { type: "FeatureCollection", features };
 }
 
-/** GeoJSON preview line từ điểm cuối → hover point */
+/** Preview line từ điểm cuối của active → hover */
 export function buildPreviewGeoJSON(
-  points: LngLat[],
+  activeMeasurement: Measurement | null,
   hover: LngLat | null,
 ): FeatureCollection {
-  if (!hover || points.length === 0) {
+  if (!activeMeasurement || !hover || activeMeasurement.points.length === 0) {
     return { type: "FeatureCollection", features: [] };
   }
-  const last = points[points.length - 1];
+  const last = activeMeasurement.points[activeMeasurement.points.length - 1];
   const dist = calcDistance(last, hover);
 
   return {
