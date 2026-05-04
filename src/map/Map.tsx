@@ -4,7 +4,7 @@ import "mapbox-gl/dist/mapbox-gl.css";
 // import type { FeatureCollection, LineString } from "geojson";
 
 import { INITIAL_CONFIG, INITIAL_VIEW, type MapConfig } from "./mapConfig";
-import { addRailwayLayers } from "@/layers/railways";
+import { addRailwayLayers, removeRailwayLayers } from "@/layers/railways";
 import { loadRailwayData } from "@/helpers/loadRailwayData";
 import { PlateauPlugin } from "@/layers/plateau";
 import { LivecamPlugin, type LivecamData } from "@/layers/livecam";
@@ -12,7 +12,11 @@ import { useLayersStore } from "@/stores/layersStore";
 import { useClockStore } from "@/stores/clockStore";
 import { LivecamModal } from "@/components/ui/LivecamModal";
 import { PrecipitationPlugin } from "@/layers/precipitation";
-import { addStationLayers, STATION_LAYER_IDS } from "@/layers/stations";
+import {
+  addStationLayers,
+  removeStationLayers,
+  STATION_LAYER_IDS,
+} from "@/layers/stations";
 import { StreetViewPanel } from "@/components/ui/StreetViewPanel";
 import { useStreetViewStore } from "@/stores/streetViewStore";
 import { FloodSimulationPlugin } from "@/layers/flood/FlootLayer";
@@ -35,6 +39,7 @@ import {
 import { addBusStopsLayer, removeBusStopsLayer } from "@/layers/busStopsLayer";
 import BusOverlay from "@/components/ui/BusOverlay";
 import { startOdptTrainsPoller } from "@/data/odptPoller";
+import AirQualityLayer from "@/layers/air/AirQualityLayer";
 
 mapboxgl.accessToken = import.meta.env.VITE_MAPBOX_TOKEN;
 
@@ -63,6 +68,10 @@ export default function MapView({ onMapLoad }: MapProps) {
 
   const odptTrainsPollerRef = useRef<{ stop: () => void } | null>(null);
 
+  const railwayDataRef = useRef<any | null>(null);
+  const timetablesRef = useRef<any | null>(null);
+  const [railwayDataReady, setRailwayDataReady] = useState(false);
+
   // ============== State ==============
   const [config] = useState<MapConfig>(INITIAL_CONFIG);
   const [activeCamera, setActiveCamera] = useState<LivecamData | null>(null);
@@ -86,6 +95,8 @@ export default function MapView({ onMapLoad }: MapProps) {
     s.enabled.has("precipitation"),
   );
   const gtfsEnabled = useLayersStore((s) => s.enabled.has("gtfs"));
+  const airQualityEnabled = useLayersStore((s) => s.enabled.has("air-quality"));
+  const trafficEnabled = useLayersStore((s) => s.enabled.has("traffic"));
   const svMode = useStreetViewStore((s) => s.mode);
   const setSvPosition = useStreetViewStore((s) => s.setPosition);
   const floodLevel = useFloodStore((s) => s.level);
@@ -149,6 +160,65 @@ export default function MapView({ onMapLoad }: MapProps) {
     floodRef.current = new FloodSimulationPlugin();
 
     map.on("style.load", async () => {
+      // map.setConfigProperty(
+      //   "basemap",
+      //   "lightPreset",
+      //   useClockStore.getState().lightPreset,
+      // );
+      // (Object.entries(config) as [keyof MapConfig, any][]).forEach(
+      //   ([key, value]) => map.setConfigProperty("basemap", key, value),
+      // );
+
+      // map.addSource("mapbox-dem", {
+      //   type: "raster-dem",
+      //   url: "mapbox://mapbox.mapbox-terrain-dem-v1",
+      //   tileSize: 512,
+      //   maxzoom: 14,
+      // });
+      // map.setTerrain({ source: "mapbox-dem", exaggeration: 1.2 });
+
+      // onMapLoad?.(map);
+
+      // try {
+      //   const { railways, stations, features, stationGroups } =
+      //     await loadRailwayData();
+      //   addRailwayLayers({ map, features, slot: "top" });
+      //   addStationLayers({
+      //     map,
+      //     stations,
+      //     railways,
+      //     stationGroups,
+      //     slot: "top",
+      //   });
+      //   const timetablesByCalendar = await loadAllTimetables();
+
+      //   trainsRef.current = startTrainAnimation({
+      //     map,
+      //     timetablesByCalendar,
+      //     stations,
+      //     railways,
+      //     features,
+      //   });
+      //   setTrainsHandle(trainsRef.current);
+
+      //   odptTrainsPollerRef.current = startOdptTrainsPoller({
+      //     consumerKey: import.meta.env.VITE_ODPT_CONSUMER_KEY,
+      //   });
+
+      //   const titles = new Map<string, string>();
+      //   for (const s of stations) {
+      //     titles.set(s.id, s.title?.en ?? s.title?.ja ?? s.id);
+      //   }
+      //   setStationTitles(titles);
+      // } catch (err) {
+      //   console.error("Failed to load map data:", err);
+      // }
+
+      // styleLoadedRef.current = true;
+      // setMapInstance(map);
+
+      // Đọc flood state từ store tại thời điểm load
+
       map.setConfigProperty(
         "basemap",
         "lightPreset",
@@ -169,36 +239,21 @@ export default function MapView({ onMapLoad }: MapProps) {
       onMapLoad?.(map);
 
       try {
-        const { railways, stations, features, stationGroups } =
-          await loadRailwayData();
-        addRailwayLayers({ map, features, slot: "top" });
-        addStationLayers({
-          map,
-          stations,
-          railways,
-          stationGroups,
-          slot: "top",
-        });
-        const timetablesByCalendar = await loadAllTimetables();
+        const data = await loadRailwayData();
+        railwayDataRef.current = data;
+        timetablesRef.current = await loadAllTimetables();
 
-        trainsRef.current = startTrainAnimation({
-          map,
-          timetablesByCalendar,
-          stations,
-          railways,
-          features,
-        });
-        setTrainsHandle(trainsRef.current);
-
+        // ODPT poller chạy nền, không tied với toggle
         odptTrainsPollerRef.current = startOdptTrainsPoller({
           consumerKey: import.meta.env.VITE_ODPT_CONSUMER_KEY,
         });
 
         const titles = new Map<string, string>();
-        for (const s of stations) {
+        for (const s of data.stations) {
           titles.set(s.id, s.title?.en ?? s.title?.ja ?? s.id);
         }
         setStationTitles(titles);
+        setRailwayDataReady(true);
       } catch (err) {
         console.error("Failed to load map data:", err);
       }
@@ -206,7 +261,6 @@ export default function MapView({ onMapLoad }: MapProps) {
       styleLoadedRef.current = true;
       setMapInstance(map);
 
-      // Đọc flood state từ store tại thời điểm load
       const { level: initLevel, scenario: initScenario } =
         useFloodStore.getState();
       floodRef.current?.enable(map);
@@ -255,6 +309,46 @@ export default function MapView({ onMapLoad }: MapProps) {
     };
   }, [onMapLoad, config, moveRailwaysToTop]); // ← chỉ giữ 3 cái stable
 
+  // ============== Traffic ==============
+  // ============== Traffic toggle (railways + stations + trains) ==============
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !styleLoadedRef.current || !railwayDataReady) return;
+    const data = railwayDataRef.current;
+    const timetables = timetablesRef.current;
+    if (!data || !timetables) return;
+
+    if (trafficEnabled) {
+      addRailwayLayers({ map, features: data.features, slot: "top" });
+      addStationLayers({
+        map,
+        stations: data.stations,
+        railways: data.railways,
+        stationGroups: data.stationGroups,
+        slot: "top",
+      });
+      trainsRef.current = startTrainAnimation({
+        map,
+        timetablesByCalendar: timetables,
+        stations: data.stations,
+        railways: data.railways,
+        features: data.features,
+      });
+      setTrainsHandle(trainsRef.current);
+      moveRailwaysToTop();
+    }
+
+    return () => {
+      // cleanup khi flip hoặc unmount
+      trainsRef.current?.remove();
+      trainsRef.current = null;
+      setTrainsHandle(null);
+      if (mapRef.current) {
+        removeStationLayers(mapRef.current);
+        removeRailwayLayers(mapRef.current);
+      }
+    };
+  }, [trafficEnabled, railwayDataReady]);
   // ============== Light preset ==============
   useEffect(() => {
     const map = mapRef.current;
@@ -469,6 +563,7 @@ export default function MapView({ onMapLoad }: MapProps) {
         stationTitles={stationTitles ?? undefined}
       />
       <BusOverlay map={mapInstance} busesHandle={busesHandle} />
+      <AirQualityLayer map={mapInstance} enabled={airQualityEnabled} />
     </div>
   );
 }

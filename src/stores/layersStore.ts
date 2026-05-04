@@ -1,11 +1,13 @@
 import { create } from "zustand";
 
 export type LayerId =
+  | "traffic"
   | "precipitation"
   //   | "fireworks"
   | "live-cameras"
   | "plateau"
-  | "gtfs";
+  | "gtfs"
+  | "air-quality";
 
 interface LayersState {
   enabled: Set<LayerId>;

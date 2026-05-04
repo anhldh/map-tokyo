@@ -5,9 +5,11 @@ import { useState } from "react";
 import { ACCENT_COLOR } from "./styles/constants";
 import { startClockTicker } from "./stores/clockStore";
 import MapView from "./map/Map";
+import "@/services/openaqProbe";
 
 const App = () => {
   const [map, setMap] = useState<mapboxgl.Map | null>(null);
+
   startClockTicker();
   return (
     <ConfigProvider
