@@ -7,7 +7,8 @@ export type LayerId =
   | "live-cameras"
   | "plateau"
   | "gtfs"
-  | "air-quality";
+  | "air-quality"
+  | "population";
 
 interface LayersState {
   enabled: Set<LayerId>;
@@ -20,6 +21,7 @@ const DEFAULT_ENABLED: LayerId[] = [
   //   "precipitation",
   //   "fireworks",
   //   "live-cameras",
+  "traffic",
 ];
 
 export const useLayersStore = create<LayersState>((set, get) => ({

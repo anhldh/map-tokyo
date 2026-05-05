@@ -9,6 +9,7 @@ import {
   Bus,
   type LucideIcon,
   Wind,
+  PersonStanding,
 } from "lucide-react";
 import { useState } from "react";
 import { PANEL_BORDER, ACCENT_COLOR } from "@/styles/constants";
@@ -29,6 +30,7 @@ const LAYER_OPTIONS: LayerOption[] = [
   { id: "plateau", label: "PLATEAU", icon: Building2 },
   { id: "gtfs", label: "Giao thông công cộng", icon: Bus },
   { id: "air-quality", label: "Chất lượng không khí", icon: Wind },
+  { id: "population", label: "Mật độ dân cư", icon: PersonStanding },
 ];
 
 const LayersPopover = () => {

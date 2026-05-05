@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
 // import type { FeatureCollection, LineString } from "geojson";
@@ -40,6 +40,8 @@ import { addBusStopsLayer, removeBusStopsLayer } from "@/layers/busStopsLayer";
 import BusOverlay from "@/components/ui/BusOverlay";
 import { startOdptTrainsPoller } from "@/data/odptPoller";
 import AirQualityLayer from "@/layers/air/AirQualityLayer";
+import { PopulationPlugin } from "@/layers/populationPlugin";
+import { getStationImportance } from "@/data/populationFake";
 
 mapboxgl.accessToken = import.meta.env.VITE_MAPBOX_TOKEN;
 
@@ -70,9 +72,10 @@ export default function MapView({ onMapLoad }: MapProps) {
 
   const railwayDataRef = useRef<any | null>(null);
   const timetablesRef = useRef<any | null>(null);
-  const [railwayDataReady, setRailwayDataReady] = useState(false);
+  const populationRef = useRef<PopulationPlugin | null>(null);
 
   // ============== State ==============
+  const [railwayDataReady, setRailwayDataReady] = useState(false);
   const [config] = useState<MapConfig>(INITIAL_CONFIG);
   const [activeCamera, setActiveCamera] = useState<LivecamData | null>(null);
   const [mapInstance, setMapInstance] = useState<mapboxgl.Map | null>(null);
@@ -97,11 +100,13 @@ export default function MapView({ onMapLoad }: MapProps) {
   const gtfsEnabled = useLayersStore((s) => s.enabled.has("gtfs"));
   const airQualityEnabled = useLayersStore((s) => s.enabled.has("air-quality"));
   const trafficEnabled = useLayersStore((s) => s.enabled.has("traffic"));
+  const populationEnabled = useLayersStore((s) => s.enabled.has("population"));
   const svMode = useStreetViewStore((s) => s.mode);
   const setSvPosition = useStreetViewStore((s) => s.setPosition);
   const floodLevel = useFloodStore((s) => s.level);
   const floodScenario = useFloodStore((s) => s.scenario);
 
+  // ============== Helpers ==============
   const getBusCurrentSeconds = () => {
     const state = useClockStore.getState();
     const baseSec =
@@ -111,8 +116,6 @@ export default function MapView({ onMapLoad }: MapProps) {
     const elapsedMs = Math.min(performance.now() - state.lastTickAt, 1000);
     return baseSec + elapsedMs / 1000;
   };
-
-  // ============== Helpers ==============
   const moveRailwaysToTop = useCallback(() => {
     const map = mapRef.current;
     if (!map) return;
@@ -130,7 +133,9 @@ export default function MapView({ onMapLoad }: MapProps) {
     }
   }, []);
 
-  // ============== Map initialization (chạy 1 lần) ==============
+  const populationPlugin = useMemo(() => new PopulationPlugin(), []);
+
+  // ============== Map initialization ==============
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
 
@@ -151,6 +156,8 @@ export default function MapView({ onMapLoad }: MapProps) {
       onCameraClose: () => setActiveCamera(null),
     });
 
+    populationRef.current = new PopulationPlugin();
+
     // Đọc lightPreset từ store tại thời điểm init, không từ closure
     const initialLightPreset = useClockStore.getState().lightPreset;
     precipitationRef.current = new PrecipitationPlugin({
@@ -160,65 +167,6 @@ export default function MapView({ onMapLoad }: MapProps) {
     floodRef.current = new FloodSimulationPlugin();
 
     map.on("style.load", async () => {
-      // map.setConfigProperty(
-      //   "basemap",
-      //   "lightPreset",
-      //   useClockStore.getState().lightPreset,
-      // );
-      // (Object.entries(config) as [keyof MapConfig, any][]).forEach(
-      //   ([key, value]) => map.setConfigProperty("basemap", key, value),
-      // );
-
-      // map.addSource("mapbox-dem", {
-      //   type: "raster-dem",
-      //   url: "mapbox://mapbox.mapbox-terrain-dem-v1",
-      //   tileSize: 512,
-      //   maxzoom: 14,
-      // });
-      // map.setTerrain({ source: "mapbox-dem", exaggeration: 1.2 });
-
-      // onMapLoad?.(map);
-
-      // try {
-      //   const { railways, stations, features, stationGroups } =
-      //     await loadRailwayData();
-      //   addRailwayLayers({ map, features, slot: "top" });
-      //   addStationLayers({
-      //     map,
-      //     stations,
-      //     railways,
-      //     stationGroups,
-      //     slot: "top",
-      //   });
-      //   const timetablesByCalendar = await loadAllTimetables();
-
-      //   trainsRef.current = startTrainAnimation({
-      //     map,
-      //     timetablesByCalendar,
-      //     stations,
-      //     railways,
-      //     features,
-      //   });
-      //   setTrainsHandle(trainsRef.current);
-
-      //   odptTrainsPollerRef.current = startOdptTrainsPoller({
-      //     consumerKey: import.meta.env.VITE_ODPT_CONSUMER_KEY,
-      //   });
-
-      //   const titles = new Map<string, string>();
-      //   for (const s of stations) {
-      //     titles.set(s.id, s.title?.en ?? s.title?.ja ?? s.id);
-      //   }
-      //   setStationTitles(titles);
-      // } catch (err) {
-      //   console.error("Failed to load map data:", err);
-      // }
-
-      // styleLoadedRef.current = true;
-      // setMapInstance(map);
-
-      // Đọc flood state từ store tại thời điểm load
-
       map.setConfigProperty(
         "basemap",
         "lightPreset",
@@ -254,6 +202,15 @@ export default function MapView({ onMapLoad }: MapProps) {
         }
         setStationTitles(titles);
         setRailwayDataReady(true);
+
+        const populationStations = data.stations
+          .filter((s: any) => Array.isArray(s.coord) && s.coord.length >= 2)
+          .map((s: any) => ({
+            lon: s.coord[0],
+            lat: s.coord[1],
+            importance: getStationImportance(s.title?.en ?? s.id),
+          }));
+        populationRef.current?.setStations(populationStations);
       } catch (err) {
         console.error("Failed to load map data:", err);
       }
@@ -306,10 +263,13 @@ export default function MapView({ onMapLoad }: MapProps) {
       styleLoadedRef.current = false;
       setMapInstance(null);
       setBusesHandle(null);
+
+      // population layer
+      populationRef.current?.disable();
+      populationRef.current = null;
     };
   }, [onMapLoad, config, moveRailwaysToTop]); // ← chỉ giữ 3 cái stable
 
-  // ============== Traffic ==============
   // ============== Traffic toggle (railways + stations + trains) ==============
   useEffect(() => {
     const map = mapRef.current;
@@ -381,6 +341,54 @@ export default function MapView({ onMapLoad }: MapProps) {
     if (plateauEnabled) plugin.enable(map);
     else plugin.disable();
   }, [plateauEnabled]);
+
+  // ============== Population toggle ==============
+  useEffect(() => {
+    const map = mapRef.current;
+    const plugin = populationRef.current;
+    if (!map || !plugin || !styleLoadedRef.current || !railwayDataReady) return;
+    if (populationEnabled) {
+      plugin.enable(map, useClockStore.getState().now);
+    } else {
+      plugin.disable();
+    }
+  }, [populationEnabled, railwayDataReady]);
+
+  // ============== Population: update theo clock ==============
+  useEffect(() => {
+    if (!populationEnabled) return;
+
+    let lastUpdateValueMs = 0;
+    const THROTTLE_MS = 5 * 60 * 1000; // 5 phút game-time
+
+    // Update ngay lần đầu khi bật
+    const initState = useClockStore.getState();
+    populationRef.current?.updateTime(initState.now);
+    lastUpdateValueMs = initState.now.valueOf();
+
+    let prevFrozenAt = initState.frozenAt?.valueOf() ?? null;
+    let prevOffsetMs = initState.offsetMs;
+
+    const unsub = useClockStore.subscribe((state) => {
+      const t = state.now.valueOf();
+      const curFrozenAt = state.frozenAt?.valueOf() ?? null;
+
+      // Detect "user jumped" — frozenAt thay đổi, hoặc offset thay đổi
+      const userJumped =
+        curFrozenAt !== prevFrozenAt || state.offsetMs !== prevOffsetMs;
+
+      prevFrozenAt = curFrozenAt;
+      prevOffsetMs = state.offsetMs;
+
+      // Update khi: user jump, hoặc realtime đã trôi đủ throttle
+      if (userJumped || Math.abs(t - lastUpdateValueMs) >= THROTTLE_MS) {
+        lastUpdateValueMs = t;
+        populationRef.current?.updateTime(state.now);
+      }
+    });
+
+    return unsub;
+  }, [populationEnabled]);
 
   // ============== Livecam toggle ==============
   useEffect(() => {
