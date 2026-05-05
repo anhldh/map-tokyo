@@ -4,7 +4,6 @@ import babel from "@rolldown/plugin-babel";
 import path from "path";
 import svgr from "vite-plugin-svgr";
 
-// https://vite.dev/config/
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
 
@@ -17,12 +16,15 @@ export default defineConfig(({ mode }) => {
     },
     server: {
       proxy: {
-        "/api/openaq": {
-          target: "https://api.openaq.org",
+        "/api/waqi": {
+          target: "https://api.waqi.info",
           changeOrigin: true,
-          rewrite: (p) => p.replace(/^\/api\/openaq/, ""),
-          headers: {
-            "X-API-Key": env.OPENAQ_API_KEY ?? "",
+          rewrite: (p) => {
+            const stripped = p.replace(/^\/api\/waqi/, "");
+            const [pathOnly, query = ""] = stripped.split("?");
+            const sp = new URLSearchParams(query);
+            sp.set("token", env.WAQI_TOKEN ?? "");
+            return `${pathOnly}?${sp.toString()}`;
           },
         },
       },

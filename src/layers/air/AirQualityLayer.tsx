@@ -1,15 +1,16 @@
-// src/layers/AirQualityLayer.tsx (chỉ phần useEffect load)
 import { useEffect, useRef } from "react";
 import mapboxgl from "mapbox-gl";
 import { Global, css } from "@emotion/react";
 import {
-  fetchTokyoLocations,
-  fetchLocationLatest,
-  filterAirQualityLocations,
-  pm25ToAqi,
-  type AQLocation,
-  type AQSensor,
-} from "@/services/openaq";
+  fetchTokyoStations,
+  fetchStationDetail,
+  aqiToColor,
+} from "@/services/waqi";
+import { useClockStore } from "@/stores/clockStore";
+
+const SOURCE_ID = "air-quality-src";
+const LAYER_ID = "air-quality-circles";
+const REFRESH_MS = 15 * 60 * 1000;
 
 const popupStyles = css`
   .aq-popup .mapboxgl-popup-content {
@@ -24,7 +25,6 @@ const popupStyles = css`
     min-width: 200px;
     line-height: 1.4;
   }
-
   .aq-popup .mapboxgl-popup-close-button {
     position: absolute;
     top: 6px;
@@ -43,8 +43,6 @@ const popupStyles = css`
     cursor: pointer;
     transition: background 0.15s;
   }
-
-  /* Light */
   .aq-popup.aq-light .mapboxgl-popup-content {
     background: #ffffff;
     color: #1a1a1a;
@@ -71,7 +69,6 @@ const popupStyles = css`
     color: #777;
   }
 
-  /* Dark */
   .aq-popup.aq-dark .mapboxgl-popup-content {
     background: #1f1f23;
     color: #eaeaea;
@@ -98,7 +95,6 @@ const popupStyles = css`
     color: #888;
   }
 
-  /* Common */
   .aq-popup .aq-title {
     font-weight: 600;
     margin-bottom: 8px;
@@ -135,15 +131,6 @@ const popupStyles = css`
   }
 `;
 
-const SOURCE_ID = "air-quality-src";
-const LAYER_ID = "air-quality-circles";
-const POLL_MS = 30 * 60 * 1000;
-const CONCURRENCY = 5;
-
-interface ReadingByParam {
-  [paramKey: string]: { value: number; unit: string; datetime: string };
-}
-
 interface Props {
   map: mapboxgl.Map | null;
   enabled: boolean;
@@ -151,16 +138,13 @@ interface Props {
 
 export default function AirQualityLayer({ map, enabled }: Props) {
   const popupRef = useRef<mapboxgl.Popup | null>(null);
-  const handlersRef = useRef<{
-    click?: (e: mapboxgl.MapMouseEvent) => void;
-    enter?: () => void;
-    leave?: () => void;
-  }>({});
+  const lightPreset = useClockStore((s) => s.lightPreset);
+  const popupTheme = lightPreset === "day" ? "aq-light" : "aq-dark";
 
   useEffect(() => {
     if (!map || !enabled) return;
     let cancelled = false;
-    // let intervalId: number | null = null;
+    let intervalId: number | null = null;
 
     const ensureLayer = () => {
       if (!map.getSource(SOURCE_ID)) {
@@ -188,7 +172,7 @@ export default function AirQualityLayer({ map, enabled }: Props) {
               22,
             ],
             "circle-color": ["get", "color"],
-            "circle-opacity": 0.8,
+            "circle-opacity": 0.85,
             "circle-stroke-width": 1.5,
             "circle-stroke-color": "#ffffff",
             "circle-stroke-opacity": 0.9,
@@ -197,179 +181,131 @@ export default function AirQualityLayer({ map, enabled }: Props) {
       }
     };
 
-    const buildFeature = (
-      loc: AQLocation,
-      readings: ReadingByParam,
-    ): GeoJSON.Feature => {
-      const pm25 = readings.pm25;
-      let color = "#888888";
-      let aqi: number | null = null;
-      let label = "No PM2.5";
-      if (pm25) {
-        const r = pm25ToAqi(pm25.value);
-        color = r.color;
-        aqi = r.aqi;
-        label = r.label;
-      } else if (readings.pm10) {
-        color = "#aaaaaa";
-        label = "PM10 only";
-      }
-      const latestDt = Object.values(readings)
-        .map((r) => r.datetime)
-        .sort()
-        .pop();
-      return {
-        type: "Feature",
-        geometry: {
-          type: "Point",
-          coordinates: [loc.coordinates.longitude, loc.coordinates.latitude],
-        },
-        properties: {
-          locationName: loc.name,
-          locationsId: loc.id,
-          color,
-          aqi,
-          label,
-          datetime: latestDt ?? "",
-          readings: JSON.stringify(readings),
-        },
-      };
-    };
-
     const load = async () => {
       try {
-        const allLocations = await fetchTokyoLocations();
+        const stations = await fetchTokyoStations();
         if (cancelled) return;
 
-        const locations = filterAirQualityLocations(allLocations);
-        console.log(
-          `[AirQuality] tokyo total=${allLocations.length}, with air sensors=${locations.length}`,
-        );
-
-        const sensorInfo = new Map<number, AQSensor>();
-        for (const loc of locations) {
-          for (const s of loc.sensors ?? []) sensorInfo.set(s.id, s);
+        const features: GeoJSON.Feature[] = [];
+        for (const s of stations) {
+          const aqiNum = Number(s.aqi);
+          if (!Number.isFinite(aqiNum)) continue;
+          const { color, label } = aqiToColor(aqiNum);
+          features.push({
+            type: "Feature",
+            geometry: { type: "Point", coordinates: [s.lon, s.lat] },
+            properties: {
+              uid: s.uid,
+              stationName: s.station.name,
+              time: s.station.time,
+              aqi: aqiNum,
+              label,
+              color,
+            },
+          });
         }
 
         ensureLayer();
         const src = map.getSource(SOURCE_ID) as mapboxgl.GeoJSONSource;
-        const features: GeoJSON.Feature[] = [];
-        let pending = 0;
-        let flushTimer: number | null = null;
-
-        // Flush throttle: gom feature mới rồi setData mỗi 200ms
-        const scheduleFlush = () => {
-          if (flushTimer !== null) return;
-          flushTimer = window.setTimeout(() => {
-            flushTimer = null;
-            if (cancelled) return;
-            src.setData({ type: "FeatureCollection", features: [...features] });
-          }, 200);
-        };
-
-        // Pool worker
-        let cursor = 0;
-        const worker = async () => {
-          while (!cancelled) {
-            const i = cursor++;
-            if (i >= locations.length) return;
-            const loc = locations[i];
-            try {
-              const latest = await fetchLocationLatest(loc.id);
-              if (cancelled) return;
-              if (!latest.length) continue;
-              const readings: ReadingByParam = {};
-              for (const m of latest) {
-                const sensor = sensorInfo.get(m.sensorsId);
-                if (!sensor) continue;
-                if (!Number.isFinite(m.value) || m.value < 0) continue;
-                readings[sensor.parameter.name] = {
-                  value: m.value,
-                  unit: sensor.parameter.units,
-                  datetime: m.datetime.local,
-                };
-              }
-              if (!Object.keys(readings).length) continue;
-              features.push(buildFeature(loc, readings));
-              scheduleFlush();
-            } catch (err) {
-              console.warn(`[AirQuality] loc ${loc.id} failed`, err);
-            }
-            pending++;
-          }
-        };
-
-        await Promise.all(
-          Array.from(
-            { length: Math.min(CONCURRENCY, locations.length) },
-            worker,
-          ),
-        );
-        if (cancelled) return;
-        // Flush cuối
-        if (flushTimer !== null) window.clearTimeout(flushTimer);
         src.setData({ type: "FeatureCollection", features });
-        console.log(
-          `[AirQuality] tokyo_locs=${locations.length} with_data=${features.length}`,
-        );
+        console.log(`[WAQI] stations=${features.length}`);
       } catch (err) {
-        console.error("[AirQuality] fetch failed", err);
+        console.error("[WAQI] fetch failed", err);
       }
     };
 
-    const onClick = (e: mapboxgl.MapMouseEvent) => {
+    const renderPopupHtml = (
+      stationName: string,
+      aqi: number,
+      label: string,
+      color: string,
+      detailHtml: string,
+      timeStr: string,
+    ) => `
+      <div class="aq-title">${stationName}</div>
+      <div class="aq-badge">
+        <span class="aq-dot" style="background:${color};"></span>
+        <span><strong>AQI ${aqi}</strong> · ${label}</span>
+      </div>
+      ${detailHtml}
+      <div class="aq-time aq-label-muted">${timeStr}</div>
+    `;
+
+    const onClick = async (e: mapboxgl.MapMouseEvent) => {
       const fts = map.queryRenderedFeatures(e.point, { layers: [LAYER_ID] });
       const f = fts[0];
       if (!f || f.geometry.type !== "Point") return;
       const p = f.properties as {
-        locationName: string;
-        color: string;
-        aqi: number | null;
+        uid: number;
+        stationName: string;
+        aqi: number;
         label: string;
-        readings: string;
-        datetime: string;
+        color: string;
+        time: string;
       };
-      const readings: ReadingByParam = JSON.parse(p.readings);
+      const coords = (f.geometry as GeoJSON.Point).coordinates as [
+        number,
+        number,
+      ];
 
-      const rows = Object.entries(readings)
-        .map(
-          ([k, v]) =>
-            `<tr>
-           <td class="aq-row-key">${k.toUpperCase()}</td>
-           <td class="aq-row-value">${v.value.toFixed(1)} ${v.unit}</td>
-         </tr>`,
-        )
-        .join("");
-
-      const aqiBadge = p.aqi
-        ? `<div class="aq-badge">
-         <span class="aq-dot" style="background:${p.color};"></span>
-         <span><strong>AQI ${p.aqi}</strong> · ${p.label}</span>
-       </div>`
-        : `<div class="aq-badge aq-label-muted">${p.label}</div>`;
-
-      const html = `
-    <div class="aq-title">${p.locationName}</div>
-    ${aqiBadge}
-    <table class="aq-table">${rows}</table>
-    <div class="aq-time aq-label-muted">
-      ${p.datetime ? new Date(p.datetime).toLocaleString() : ""}
-    </div>
-  `;
-
+      // Popup tạm với data có sẵn
       popupRef.current?.remove();
-      popupRef.current = new mapboxgl.Popup({
+      const popup = new mapboxgl.Popup({
         closeButton: true,
         closeOnClick: true,
         offset: 12,
-        className: `aq-popup`,
+        className: `aq-popup ${popupTheme}`,
       })
-        .setLngLat(
-          (f.geometry as GeoJSON.Point).coordinates as [number, number],
+        .setLngLat(coords)
+        .setHTML(
+          renderPopupHtml(
+            p.stationName,
+            p.aqi,
+            p.label,
+            p.color,
+            `<div class="aq-label-muted" style="margin-bottom:6px;">Loading details...</div>`,
+            p.time ? new Date(p.time).toLocaleString() : "",
+          ),
         )
-        .setHTML(html)
         .addTo(map);
+      popupRef.current = popup;
+
+      // Lấy detail
+      const detail = await fetchStationDetail(p.uid);
+      if (cancelled || popupRef.current !== popup) return;
+      if (!detail) {
+        popup.setHTML(
+          renderPopupHtml(
+            p.stationName,
+            p.aqi,
+            p.label,
+            p.color,
+            `<div class="aq-label-muted">Không lấy được chi tiết</div>`,
+            p.time ? new Date(p.time).toLocaleString() : "",
+          ),
+        );
+        return;
+      }
+
+      const rows = Object.entries(detail.iaqi)
+        .map(
+          ([k, { v }]) =>
+            `<tr><td class="aq-row-key">${k.toUpperCase()}</td><td class="aq-row-value">${v}</td></tr>`,
+        )
+        .join("");
+
+      popup.setHTML(
+        renderPopupHtml(
+          p.stationName,
+          p.aqi,
+          p.label,
+          p.color,
+          `<table class="aq-table">${rows}</table>`,
+          new Date(detail.time.iso).toLocaleString(),
+        ),
+      );
     };
+
     const onEnter = () => {
       map.getCanvas().style.cursor = "pointer";
     };
@@ -377,28 +313,26 @@ export default function AirQualityLayer({ map, enabled }: Props) {
       map.getCanvas().style.cursor = "";
     };
 
-    handlersRef.current = { click: onClick, enter: onEnter, leave: onLeave };
     map.on("click", LAYER_ID, onClick);
     map.on("mouseenter", LAYER_ID, onEnter);
     map.on("mouseleave", LAYER_ID, onLeave);
 
     load();
-    // intervalId = window.setInterval(load, POLL_MS);
+    intervalId = window.setInterval(load, REFRESH_MS);
 
     return () => {
       cancelled = true;
-      // if (intervalId !== null) window.clearInterval(intervalId);
-      const h = handlersRef.current;
-      if (h.click) map.off("click", LAYER_ID, h.click);
-      if (h.enter) map.off("mouseenter", LAYER_ID, h.enter);
-      if (h.leave) map.off("mouseleave", LAYER_ID, h.leave);
+      if (intervalId !== null) window.clearInterval(intervalId);
+      map.off("click", LAYER_ID, onClick);
+      map.off("mouseenter", LAYER_ID, onEnter);
+      map.off("mouseleave", LAYER_ID, onLeave);
       popupRef.current?.remove();
       popupRef.current = null;
       if (map.getLayer(LAYER_ID)) map.removeLayer(LAYER_ID);
       if (map.getSource(SOURCE_ID)) map.removeSource(SOURCE_ID);
       map.getCanvas().style.cursor = "";
     };
-  }, [map, enabled]);
+  }, [map, enabled, popupTheme]);
 
   return <Global styles={popupStyles} />;
 }

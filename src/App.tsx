@@ -5,7 +5,6 @@ import { useState } from "react";
 import { ACCENT_COLOR } from "./styles/constants";
 import { startClockTicker } from "./stores/clockStore";
 import MapView from "./map/Map";
-import "@/services/openaqProbe";
 import { MeasureController } from "./layers/distance/MeasureController";
 import { MeasurePanel } from "./components/ui/MeasurePanel";
 

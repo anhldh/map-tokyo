@@ -2,8 +2,8 @@ import { serve, file } from "bun";
 import { join } from "path";
 
 const BUILD_DIR = "./dist";
-const OPENAQ_PREFIX = "/api/openaq/";
-const OPENAQ_UPSTREAM = "https://api.openaq.org";
+const WAQI_PREFIX = "/api/waqi/";
+const WAQI_UPSTREAM = "https://api.waqi.info";
 
 const server = serve({
   port: process.env.PORT || 5173,
@@ -11,9 +11,9 @@ const server = serve({
     const url = new URL(req.url);
     const path = url.pathname;
 
-    // ===== Proxy OpenAQ =====
-    if (path.startsWith(OPENAQ_PREFIX)) {
-      return handleOpenAQ(req, url);
+    // ===== Proxy WAQI =====
+    if (path.startsWith(WAQI_PREFIX)) {
+      return handleWAQI(req, url);
     }
 
     // ===== Static files / SPA fallback =====
@@ -28,47 +28,34 @@ const server = serve({
   },
 });
 
-async function handleOpenAQ(req: Request, url: URL): Promise<Response> {
-  const apiKey = process.env.OPENAQ_API_KEY;
-  if (!apiKey) {
+async function handleWAQI(req: Request, url: URL): Promise<Response> {
+  const token = process.env.WAQI_TOKEN;
+  if (!token) {
     return Response.json(
-      { error: "OPENAQ_API_KEY not configured" },
+      { error: "WAQI_TOKEN not configured" },
       { status: 500 },
     );
   }
 
-  const upstreamPath = url.pathname.slice(OPENAQ_PREFIX.length);
-  const upstreamUrl = `${OPENAQ_UPSTREAM}/${upstreamPath}${url.search}`;
+  // /api/waqi/map/bounds/?latlng=... → https://api.waqi.info/map/bounds/?latlng=...&token=...
+  const upstreamPath = url.pathname.slice(WAQI_PREFIX.length);
+  const sp = new URLSearchParams(url.search);
+  sp.set("token", token);
+  const upstreamUrl = `${WAQI_UPSTREAM}/${upstreamPath}?${sp.toString()}`;
 
   try {
-    const upstream = await fetch(upstreamUrl, {
-      method: req.method,
-      headers: {
-        "X-API-Key": apiKey,
-        accept: "application/json",
-      },
-    });
+    const upstream = await fetch(upstreamUrl, { method: req.method });
 
     const headers = new Headers();
-    const passHeaders = [
-      "content-type",
-      "x-ratelimit-used",
-      "x-ratelimit-reset",
-      "x-ratelimit-limit",
-      "x-ratelimit-remaining",
-      "retry-after",
-    ];
-    for (const h of passHeaders) {
-      const v = upstream.headers.get(h);
-      if (v) headers.set(h, v);
-    }
+    const ct = upstream.headers.get("content-type");
+    if (ct) headers.set("content-type", ct);
 
     return new Response(upstream.body, {
       status: upstream.status,
       headers,
     });
   } catch (err) {
-    console.error("[openaq proxy]", err);
+    console.error("[waqi proxy]", err);
     return Response.json({ error: "Upstream fetch failed" }, { status: 502 });
   }
 }
