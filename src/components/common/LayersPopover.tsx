@@ -3,13 +3,14 @@ import styled from "@emotion/styled";
 import {
   Layers,
   CloudRain,
-  // Sparkles,
   Video,
   Building2,
   Bus,
   type LucideIcon,
   Wind,
   PersonStanding,
+  Car,
+  AlignEndVertical,
 } from "lucide-react";
 import { useState } from "react";
 import { PANEL_BORDER, ACCENT_COLOR } from "@/styles/constants";
@@ -23,9 +24,9 @@ interface LayerOption {
 }
 
 const LAYER_OPTIONS: LayerOption[] = [
-  { id: "traffic", label: "Giao Thông", icon: Layers },
+  { id: "traffic", label: "Giao Thông", icon: Car },
+  { id: "jam", label: "Tình hình giao thông", icon: AlignEndVertical },
   { id: "precipitation", label: "Thời tiết", icon: CloudRain },
-  // { id: "fireworks", label: "Fireworks", icon: Sparkles },
   { id: "live-cameras", label: "Live Cameras", icon: Video },
   { id: "plateau", label: "PLATEAU", icon: Building2 },
   { id: "gtfs", label: "Giao thông công cộng", icon: Bus },
@@ -33,10 +34,33 @@ const LAYER_OPTIONS: LayerOption[] = [
   { id: "population", label: "Mật độ dân cư", icon: PersonStanding },
 ];
 
+// Các cặp layer loại trừ lẫn nhau: bật A thì tự tắt B
+const MUTUAL_EXCLUSIONS: Partial<Record<LayerId, LayerId[]>> = {
+  jam: ["traffic"],
+  traffic: ["jam"],
+};
+
 const LayersPopover = () => {
   const [open, setOpen] = useState(false);
   const enabled = useLayersStore((s) => s.enabled);
   const toggle = useLayersStore((s) => s.toggle);
+  const setEnabled = useLayersStore((s) => s.setEnabled);
+
+  const handleClick = (id: LayerId) => {
+    const willEnable = !enabled.has(id);
+
+    // Nếu đang bật layer này lên, tắt các layer xung đột trước
+    if (willEnable) {
+      const conflicts = MUTUAL_EXCLUSIONS[id];
+      if (conflicts) {
+        for (const conflictId of conflicts) {
+          if (enabled.has(conflictId)) setEnabled(conflictId, false);
+        }
+      }
+    }
+
+    toggle(id);
+  };
 
   return (
     <Popover
@@ -66,7 +90,7 @@ const LayersPopover = () => {
                 <LayerItem
                   key={id}
                   selected={isSelected}
-                  onClick={() => toggle(id)}
+                  onClick={() => handleClick(id)}
                   aria-pressed={isSelected}
                 >
                   <IconBox selected={isSelected}>
@@ -95,6 +119,9 @@ const PopoverContent = styled.div`
   width: 280px;
   padding: 4px;
   color: rgba(255, 255, 255, 0.95);
+  display: flex;
+  flex-direction: column;
+  max-height: 480px;
 `;
 
 const PopoverTitle = styled.div`
@@ -102,12 +129,32 @@ const PopoverTitle = styled.div`
   font-weight: 700;
   margin-bottom: 16px;
   letter-spacing: 0.2px;
+  flex-shrink: 0;
 `;
 
 const LayerList = styled.div`
   display: flex;
   flex-direction: column;
   gap: 10px;
+  overflow-y: auto;
+  padding-right: 4px;
+  flex: 1;
+  min-height: 0;
+
+  /* Custom scrollbar */
+  &::-webkit-scrollbar {
+    width: 6px;
+  }
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  &::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: 3px;
+  }
+  &::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.25);
+  }
 `;
 
 const LayerItem = styled.button<{ selected: boolean }>`
@@ -122,6 +169,7 @@ const LayerItem = styled.button<{ selected: boolean }>`
   cursor: pointer;
   transition: background 0.15s ease;
   text-align: left;
+  flex-shrink: 0;
 
   &:hover {
     background: rgba(255, 255, 255, 0.05);

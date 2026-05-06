@@ -8,7 +8,8 @@ export type LayerId =
   | "plateau"
   | "gtfs"
   | "air-quality"
-  | "population";
+  | "population"
+  | "jam";
 
 interface LayersState {
   enabled: Set<LayerId>;

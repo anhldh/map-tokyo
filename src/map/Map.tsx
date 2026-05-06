@@ -133,8 +133,6 @@ export default function MapView({ onMapLoad }: MapProps) {
     }
   }, []);
 
-  const populationPlugin = useMemo(() => new PopulationPlugin(), []);
-
   // ============== Map initialization ==============
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
@@ -184,6 +182,11 @@ export default function MapView({ onMapLoad }: MapProps) {
       });
       map.setTerrain({ source: "mapbox-dem", exaggeration: 1.2 });
 
+      try {
+        map.setConfigProperty("basemap", "lang", "vi");
+      } catch {
+        /* empty */
+      }
       onMapLoad?.(map);
 
       try {

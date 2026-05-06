@@ -7,6 +7,8 @@ import { startClockTicker } from "./stores/clockStore";
 import MapView from "./map/Map";
 import { MeasureController } from "./layers/distance/MeasureController";
 import { MeasurePanel } from "./components/ui/MeasurePanel";
+import { TrafficLayer } from "./layers/TrafficLayer";
+import { TrafficHotspots } from "./layers/TrafficHotspot";
 
 const App = () => {
   const [map, setMap] = useState<mapboxgl.Map | null>(null);
@@ -35,6 +37,8 @@ const App = () => {
         <MapOverlay map={map} />
         {map && <MeasureController map={map} />}
         <MeasurePanel />
+        {map && <TrafficLayer map={map} />}
+        {/* {map && <TrafficHotspots map={map} />} */}
       </div>
     </ConfigProvider>
   );
