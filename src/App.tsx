@@ -38,7 +38,7 @@ const App = () => {
         {map && <MeasureController map={map} />}
         <MeasurePanel />
         {map && <TrafficLayer map={map} />}
-        {/* {map && <TrafficHotspots map={map} />} */}
+        {map && <TrafficHotspots map={map} />}
       </div>
     </ConfigProvider>
   );
