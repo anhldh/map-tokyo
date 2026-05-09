@@ -28,7 +28,7 @@ const LAYER_OPTIONS: LayerOption[] = [
   { id: "jam", label: "Tình hình giao thông", icon: AlignEndVertical },
   { id: "precipitation", label: "Thời tiết", icon: CloudRain },
   { id: "live-cameras", label: "Live Cameras", icon: Video },
-  { id: "plateau", label: "PLATEAU", icon: Building2 },
+  { id: "plateau", label: "Map 3D", icon: Building2 },
   { id: "gtfs", label: "Giao thông công cộng", icon: Bus },
   { id: "air-quality", label: "Chất lượng không khí", icon: Wind },
   { id: "population", label: "Mật độ dân cư", icon: PersonStanding },
