@@ -11,6 +11,14 @@ import {
   PersonStanding,
   Car,
   AlignEndVertical,
+  BatteryCharging,
+  WavesLadder,
+  TreeDeciduous,
+  Van,
+  Hospital,
+  Shield,
+  LandPlot,
+  Factory,
 } from "lucide-react";
 import { useState } from "react";
 import { PANEL_BORDER, ACCENT_COLOR } from "@/styles/constants";
@@ -28,10 +36,26 @@ const LAYER_OPTIONS: LayerOption[] = [
   { id: "jam", label: "Tình hình giao thông", icon: AlignEndVertical },
   { id: "precipitation", label: "Thời tiết", icon: CloudRain },
   { id: "live-cameras", label: "Live Cameras", icon: Video },
-  { id: "plateau", label: "Map 3D", icon: Building2 },
+  { id: "plateau", label: "3D Map", icon: Building2 },
   { id: "gtfs", label: "Giao thông công cộng", icon: Bus },
   { id: "air-quality", label: "Chất lượng không khí", icon: Wind },
-  { id: "population", label: "Mật độ dân cư", icon: PersonStanding },
+  { id: "population", label: "Quản lý dân cư xã hội", icon: PersonStanding },
+  { id: "power", label: "Hạ tầng điện", icon: BatteryCharging },
+  { id: "water-pipeline", label: "Hạ tầng nước", icon: WavesLadder },
+  { id: "urban-planning", label: "Quy hoạch đô thị", icon: TreeDeciduous },
+  { id: "cultural-tourism", label: "Du lịch văn hóa", icon: Van },
+  { id: "urban-health", label: "Y tế đô thị", icon: Hospital },
+  { id: "urban-security", label: "An ninh đô thị", icon: Shield },
+  {
+    id: "land-resource-management",
+    label: "Quản lý tài nguyên đất",
+    icon: LandPlot,
+  },
+  {
+    id: "industrial-park-management",
+    label: "Quản lý Khu công nghiệp",
+    icon: Factory,
+  },
 ];
 
 // Các cặp layer loại trừ lẫn nhau: bật A thì tự tắt B

@@ -9,7 +9,15 @@ export type LayerId =
   | "gtfs"
   | "air-quality"
   | "population"
-  | "jam";
+  | "jam"
+  | "power"
+  | "water-pipeline"
+  | "urban-planning"
+  | "cultural-tourism"
+  | "urban-health"
+  | "urban-security"
+  | "land-resource-management"
+  | "industrial-park-management";
 
 interface LayersState {
   enabled: Set<LayerId>;
